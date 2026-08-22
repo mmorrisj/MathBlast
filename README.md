@@ -46,7 +46,7 @@ d-pad + A, with B or RT for the beam.
 | | |
 | --- | --- |
 | **Multiplication lattice** | `a × b` as a countable grid. Solving runs a diagonal collapse wave through it, so the kill animation is a picture of the array being consumed. |
-| **Splitting asteroid** | Hit a composite with any proper factor and it fractures into two proportionally sized rocks. Composites show fracture seams; primes show an unbreakable crystalline core and must be named. |
+| **Splitting asteroid** | Labelled `? × ? = 48`. Hit a composite with any proper factor and it fractures into two proportionally sized rocks. Composites show fracture seams; primes show an unbreakable crystalline core. Trying to factor a prime costs nothing — the rock reveals itself as `17 is PRIME` and you name it instead. |
 | **Fraction crystal** | A shell with a wedge missing, faceted at every `1/q` so the denominator is countable. Any equivalent fraction is accepted — `2/8` and `1/4` cut the same hole, and the player discovers that rather than being told. |
 | **Voidling** | A negative. Rises instead of falling, drawn as a hole rather than an object. Fire its additive inverse to annihilate it; let it escape off the top and it takes shield energy with it. |
 | **Boss equation** | `3x + 7 = 22`, cracked one step at a time: isolate, solve, verify. Each step shatters one of three armour rings, so the algebra and the armour come apart together. |
@@ -193,6 +193,12 @@ quality manager and the `?q=` override are the mitigation.
 ## Testing
 
 `npm test` drives the real game in headless Chromium and asserts on live state —
-27 checks covering the impact pipeline, magnitude scaling, every beast type,
+31 checks covering the impact pipeline, magnitude scaling, every beast type,
 overcharge, landings, the adaptive music, both accessibility modes, both input
 modes, game over and restart, plus an end-to-end run to wave 7.
+
+One of them exists because of a real playtest failure: boulders originally
+rendered a bare `48` with no question anywhere near them, and the only
+instruction was HUD text shown for the targeted beast alone. Every beast now
+states its own task above it, and the suite asserts that none of them render as
+just a number.

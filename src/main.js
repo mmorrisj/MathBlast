@@ -225,11 +225,16 @@ class Game {
     const correct = t.accepts(raw);
     const elapsed = performance.now() / 1000 - t.bornAt;
 
+    // A first attempt to factor a prime is a lesson, not a mistake -- keep it
+    // out of accuracy, the skill table and the mode shift.
+    const freebie = !correct && t.prime && !t.revealed;
     if (t.a != null && t.b != null) this.skill.record(t.a, t.b, elapsed, correct);
-    this.attempts++;
-    if (correct) this.solved++;
-    this.rollingAcc = this.rollingAcc * 0.82 + (correct ? 1 : 0) * 0.18;
-    this.audio.setAccuracy(this.rollingAcc);
+    if (!freebie) {
+      this.attempts++;
+      if (correct) this.solved++;
+      this.rollingAcc = this.rollingAcc * 0.82 + (correct ? 1 : 0) * 0.18;
+      this.audio.setAccuracy(this.rollingAcc);
+    }
 
     t.locked = true;
     t.pendingRaw = raw;
@@ -391,6 +396,19 @@ class Game {
         this.camera.shake(0.4);
         b.locked = false;
       }
+    } else if (b.prime && !b.revealed) {
+      // Discovering that a rock is prime should not cost anything. The first
+      // attempt to factor one teaches instead of punishing: the rock reveals
+      // itself, and the combo and shield are left alone.
+      b.revealed = true;
+      b.locked = false;
+      b.hitFlash = 1;
+      this.audio.charged();
+      this.camera.shake(0.14);
+      this.shockwaves.spawn(b.x, b.y, 0.45, { hue: 352, rings: 2, radius: 130 });
+      this.particles.burst(b.x, b.y, 22, {
+        hue: 352, speed: 260, life: 0.7, size: 3.6, stretch: 0.8,
+      });
     } else {
       b.locked = false;
       b.repel();

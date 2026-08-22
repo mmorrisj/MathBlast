@@ -332,8 +332,11 @@ export function drawTitle(ctx, W, H, t) {
     'TYPE the answer  ·  ENTER fire  ·  SPACE overcharge beam',
     'Tap or use a gamepad to pick from four answers instead.',
     '',
+    'Grids ask for the product.  Boulders ask for any factor —',
+    'red ones are prime, so type the number itself.',
+    '',
     'Correct answers release orbs that build your shield.',
-    'An intact plate absorbs one landing. Primes refuse to split.',
+    'An intact plate absorbs one landing.',
   ];
   ctx.font = `400 16px ${MONO}`;
   lines.forEach((l, i) => {

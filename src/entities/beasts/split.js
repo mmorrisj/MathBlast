@@ -17,6 +17,7 @@ export class SplitBeast extends Beast {
     super(x, y, speed);
     this.n = n;
     this.prime = isPrime(n);
+    this.revealed = false;      // set once a player has tried to factor a prime
     this.r = radiusFor(n);
     this.w = this.r * 2;
     this.h = this.r * 2;
@@ -34,9 +35,18 @@ export class SplitBeast extends Beast {
   }
 
   get magnitude() { return this.n; }
-  get promptText() { return String(this.n); }
+
+  // The bare number is not a question. Every rock states its own task above it,
+  // so a player can read what to do without hunting for the HUD -- and so
+  // non-targeted rocks are legible too.
+  get promptText() {
+    if (this.prime && this.revealed) return `${this.n} is PRIME`;
+    return `? × ? = ${this.n}`;
+  }
+
   get hintText() {
-    return this.prime ? `${this.n} is prime — name it:` : `factor of ${this.n}:`;
+    if (this.prime && this.revealed) return `no factors — type ${this.n}:`;
+    return `one factor of ${this.n} =`;
   }
   get answerText() {
     if (this.prime) return String(this.n);
@@ -137,6 +147,8 @@ export class SplitBeast extends Beast {
       }
     }
     ctx.restore();
+
+    if (!dying) this.drawLabel(ctx, this.promptText, 24);
 
     // The number, carved into the rock.
     ctx.save();

@@ -124,6 +124,51 @@ async function main() {
   await page.waitForTimeout(600);
   check('a prime dies when it is named', (await state(() => window.game.beasts.filter((b) => b.alive).length)) === 0);
 
+  // --- every beast states its own task ------------------------------------
+  // A bare number is not a question. This is the regression that made boulders
+  // unplayable: they rendered "48" with no prompt, and the only instruction was
+  // HUD text shown for the targeted beast alone.
+  const prompts = await page.evaluate(async () => {
+    const M = await import('/src/entities/beasts/index.js');
+    return {
+      mult: new M.MultBeast(7, 8, 0, 0, 0).promptText,
+      composite: new M.SplitBeast(48, 0, 0, 0).promptText,
+      prime: new M.SplitBeast(17, 0, 0, 0).promptText,
+      voidling: new M.Voidling(6, 0, 0, 0).promptText,
+      boss: new M.BossBeast(3, 7, 5, 0, 0, 0).promptText,
+      fraction: new M.FractionBeast(3, 8, 0, 0, 0).promptText,
+    };
+  });
+  check('every beast type states a task, not just a number',
+        Object.values(prompts).every((p) => /[?=×]/.test(p) && !/^\d+$/.test(p)));
+  check('boulders ask for a factor in words the rock shows itself',
+        prompts.composite === '? × ? = 48' && prompts.prime === '? × ? = 17');
+
+  // --- discovering a prime is free -----------------------------------------
+  await only('new M.SplitBeast(17, 560, 260, 0)');
+  await waitTarget();
+  const preP = await state(() => {
+    const g = window.game;
+    g.combo = 6;
+    return { combo: g.combo, intact: g.shield.intact, attempts: g.attempts };
+  });
+  await type('4');
+  await page.waitForTimeout(700);
+  const postP = await state(() => {
+    const g = window.game;
+    const b = g.beasts.find((x) => x.alive);
+    return { combo: g.combo, intact: g.shield.intact, attempts: g.attempts,
+             revealed: Boolean(b && b.revealed), prompt: b && b.promptText };
+  });
+  check('factoring a prime costs nothing and reveals it',
+        postP.combo === preP.combo && postP.intact === preP.intact &&
+        postP.attempts === preP.attempts && postP.revealed &&
+        postP.prompt === '17 is PRIME');
+  await type('17');
+  await page.waitForTimeout(600);
+  check('a revealed prime still dies when named',
+        (await state(() => window.game.beasts.filter((b) => b.alive).length)) === 0);
+
   // --- fractions ----------------------------------------------------------
   await only('new M.FractionBeast(2, 8, 640, 230, 0)');
   await waitTarget();
