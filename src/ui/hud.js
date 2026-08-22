@@ -4,18 +4,27 @@
 
 import { clamp, lerp, easeOutElastic, easeOutCubic, roundRect, TAU } from '../util.js';
 import { theme } from '../theme.js';
+import { drawScores } from './profile.js';
 
 const MONO = '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace';
 
-export const ENTRY_Y = 674;
-const CHOICE_W = 132;
-const CHOICE_H = 58;
+let ENTRY_Y = 674;
 const CHOICE_GAP = 14;
 
+// Touch gets bigger boxes: at 58px tall in canvas space these fall under the
+// ~44px physical minimum once 1280x720 is scaled down to a phone screen.
+let choiceW = 132;
+let choiceH = 58;
+export function setChoiceLayout(touch) {
+  choiceW = touch ? 168 : 132;
+  choiceH = touch ? 84 : 58;
+  ENTRY_Y = touch ? 644 : 674;
+}
+
 function choiceRect(i, count) {
-  const total = count * CHOICE_W + (count - 1) * CHOICE_GAP;
+  const total = count * choiceW + (count - 1) * CHOICE_GAP;
   const x0 = 640 - total / 2;
-  return { x: x0 + i * (CHOICE_W + CHOICE_GAP), y: ENTRY_Y - CHOICE_H / 2, w: CHOICE_W, h: CHOICE_H };
+  return { x: x0 + i * (choiceW + CHOICE_GAP), y: ENTRY_Y - choiceH / 2, w: choiceW, h: choiceH };
 }
 
 export function choiceHitTest(px, py, choices) {
@@ -27,6 +36,8 @@ export function choiceHitTest(px, py, choices) {
 }
 
 let topScrim = null;
+let bottomScrim = null;
+let bottomScrimTop = -1;
 
 export function drawHud(ctx, g, W, H) {
   ctx.save();
@@ -133,8 +144,9 @@ export function drawHud(ctx, g, W, H) {
     ctx.shadowBlur = 0;
   }
 
-  // Overcharge.
+  // Overcharge. On touch the beam button already shows this, so skip it.
   const ready = g.overcharge >= 1;
+  if (!g.touch) {
   ctx.font = `500 12px ${MONO}`;
   ctx.fillStyle = ready ? 'rgba(255,226,150,0.9)' : 'rgba(150,200,235,0.5)';
   ctx.fillText(ready ? 'OVERCHARGE — SPACE' : 'OVERCHARGE', 34, 386);
@@ -149,6 +161,7 @@ export function drawHud(ctx, g, W, H) {
   roundRect(ctx, 34, 394, Math.max(2, 150 * clamp(g.overcharge, 0, 1)), 8, 4);
   ctx.fill();
   ctx.restore();
+  }
 
   // Shield coverage.
   const cov = g.shield.coverage;
@@ -170,13 +183,31 @@ export function drawHud(ctx, g, W, H) {
   // Targeting mode readout: switching target is the least discoverable control
   // in the game, so it gets a permanent line rather than a tooltip.
   const manual = g.manualTargetId != null;
-  ctx.textAlign = 'center';
-  ctx.font = `500 12px ${MONO}`;
-  ctx.fillStyle = manual ? 'rgba(255,226,150,0.85)' : 'rgba(150,200,235,0.45)';
-  ctx.fillText(
-    manual ? 'TARGET LOCKED — [ ] or click to switch' : 'AUTO-TARGET — [ ] or click to choose',
-    W / 2, ENTRY_Y - 44,
-  );
+  const pick = g.touch ? 'tap a beast' : '[ ] or click';
+  if (manual || !g.touch) {
+    ctx.textAlign = 'center';
+    ctx.font = `500 12px ${MONO}`;
+    ctx.fillStyle = manual ? 'rgba(255,226,150,0.85)' : 'rgba(150,200,235,0.45)';
+    ctx.fillText(
+      manual ? `TARGET LOCKED — ${pick} to switch` : `AUTO-TARGET — ${pick} to choose`,
+      W / 2, ENTRY_Y - (g.inputMode === 'choose' ? 84 : 44),
+    );
+  }
+
+  // The answer row overlaps the dome once it lifts for touch. Same scrim
+  // treatment as the top HUD, for the same reason.
+  if (g.touch) {
+    const top = ENTRY_Y - 108;
+    if (!bottomScrim || bottomScrimTop !== top) {
+      bottomScrim = ctx.createLinearGradient(0, top, 0, H);
+      bottomScrim.addColorStop(0, 'rgba(4,7,18,0)');
+      bottomScrim.addColorStop(0.35, 'rgba(4,7,18,0.58)');
+      bottomScrim.addColorStop(1, 'rgba(4,7,18,0.9)');
+      bottomScrimTop = top;
+    }
+    ctx.fillStyle = bottomScrim;
+    ctx.fillRect(0, top, W, H - top);
+  }
 
   drawEntry(ctx, g, W, H);
   ctx.restore();
@@ -192,9 +223,17 @@ function drawEntry(ctx, g, W, H) {
 
   if (g.inputMode === 'choose') {
     if (target) {
+      const hy = ENTRY_Y - choiceH / 2 - 26;
       ctx.font = `500 20px ${MONO}`;
-      ctx.fillStyle = 'rgba(160,205,240,0.75)';
-      ctx.fillText(target.hintText, W / 2, ENTRY_Y - 58);
+      if (g.touch) {
+        // A pill keeps the question legible over the shield plates behind it.
+        const tw = ctx.measureText(target.hintText).width;
+        ctx.fillStyle = 'rgba(6,12,26,0.88)';
+        roundRect(ctx, W / 2 - tw / 2 - 18, hy - 18, tw + 36, 36, 10);
+        ctx.fill();
+      }
+      ctx.fillStyle = 'rgba(178,216,246,0.92)';
+      ctx.fillText(target.hintText, W / 2, hy);
     }
     for (let i = 0; i < g.choices.length; i++) {
       const r = choiceRect(i, g.choices.length);
@@ -218,7 +257,7 @@ function drawEntry(ctx, g, W, H) {
         ctx.fillRect(r.x - 20, r.y - 20, r.w + 40, r.h + 40);
         ctx.globalCompositeOperation = 'source-over';
       }
-      ctx.font = `700 30px ${MONO}`;
+      ctx.font = `700 ${choiceH > 70 ? 36 : 30}px ${MONO}`;
       ctx.fillStyle = sel ? '#fff6dc' : 'rgba(220,238,252,0.85)';
       ctx.fillText(g.choices[i], r.x + r.w / 2, r.y + r.h / 2 + 1);
       ctx.restore();
@@ -286,13 +325,31 @@ export function drawFocus(ctx, g, W, H, amount, camera) {
   // Targeting mode readout: switching target is the least discoverable control
   // in the game, so it gets a permanent line rather than a tooltip.
   const manual = g.manualTargetId != null;
-  ctx.textAlign = 'center';
-  ctx.font = `500 12px ${MONO}`;
-  ctx.fillStyle = manual ? 'rgba(255,226,150,0.85)' : 'rgba(150,200,235,0.45)';
-  ctx.fillText(
-    manual ? 'TARGET LOCKED — [ ] or click to switch' : 'AUTO-TARGET — [ ] or click to choose',
-    W / 2, ENTRY_Y - 44,
-  );
+  const pick = g.touch ? 'tap a beast' : '[ ] or click';
+  if (manual || !g.touch) {
+    ctx.textAlign = 'center';
+    ctx.font = `500 12px ${MONO}`;
+    ctx.fillStyle = manual ? 'rgba(255,226,150,0.85)' : 'rgba(150,200,235,0.45)';
+    ctx.fillText(
+      manual ? `TARGET LOCKED — ${pick} to switch` : `AUTO-TARGET — ${pick} to choose`,
+      W / 2, ENTRY_Y - (g.inputMode === 'choose' ? 84 : 44),
+    );
+  }
+
+  // The answer row overlaps the dome once it lifts for touch. Same scrim
+  // treatment as the top HUD, for the same reason.
+  if (g.touch) {
+    const top = ENTRY_Y - 108;
+    if (!bottomScrim || bottomScrimTop !== top) {
+      bottomScrim = ctx.createLinearGradient(0, top, 0, H);
+      bottomScrim.addColorStop(0, 'rgba(4,7,18,0)');
+      bottomScrim.addColorStop(0.35, 'rgba(4,7,18,0.58)');
+      bottomScrim.addColorStop(1, 'rgba(4,7,18,0.9)');
+      bottomScrimTop = top;
+    }
+    ctx.fillStyle = bottomScrim;
+    ctx.fillRect(0, top, W, H - top);
+  }
 
   drawEntry(ctx, g, W, H);
   ctx.restore();
@@ -331,7 +388,7 @@ export function drawInterlude(ctx, g, W, H, p) {
   ctx.restore();
 }
 
-export function drawTitle(ctx, W, H, t) {
+export function drawTitle(ctx, W, H, t, g) {
   ctx.save();
   ctx.fillStyle = 'rgba(4,6,16,0.74)';
   ctx.fillRect(0, 0, W, H);
@@ -346,24 +403,35 @@ export function drawTitle(ctx, W, H, t) {
   ctx.fillText('MATHBLAST', W / 2, H / 2 - 96 + bob);
   ctx.shadowBlur = 0;
 
-  ctx.font = `500 21px ${MONO}`;
-  ctx.fillStyle = 'rgba(170,215,245,0.85)';
-  ctx.fillText('The beasts are descending. Solve to stop them.', W / 2, H / 2 - 16);
+  const player = g && g.profiles.active;
+  if (player) {
+    ctx.font = `600 19px ${MONO}`;
+    ctx.fillStyle = `hsla(${theme.friendly},90%,74%,0.95)`;
+    ctx.fillText(player.name, W / 2, H / 2 - 18);
+    ctx.font = `400 14px ${MONO}`;
+    ctx.fillStyle = 'rgba(150,190,220,0.6)';
+    ctx.fillText(player.games ? `your best ${player.bestScore} · wave ${player.bestWave}`
+                              : 'first run — good luck',
+                 W / 2, H / 2 + 8);
+  }
 
   const a = 0.55 + Math.sin(t * 4) * 0.45;
   ctx.font = `700 26px ${MONO}`;
   ctx.fillStyle = `rgba(255,232,170,${a})`;
-  ctx.fillText('PRESS ENTER TO BEGIN', W / 2, H / 2 + 66);
+  ctx.fillText('PRESS ENTER TO BEGIN', W / 2, H / 2 + 56);
 
-  ctx.font = `600 17px ${MONO}`;
+  ctx.font = `600 16px ${MONO}`;
   ctx.fillStyle = `hsla(${theme.friendly},90%,72%,0.9)`;
-  ctx.fillText('H — HOW TO PLAY', W / 2, H / 2 + 118);
+  ctx.fillText('H — HOW TO PLAY', W / 2, H / 2 + 96);
 
-  ctx.font = `400 13px ${MONO}`;
-  ctx.fillStyle = 'rgba(140,180,215,0.45)';
+  if (g) drawScores(ctx, g.scores, W / 2, H / 2 + 136, W, { limit: 4, width: 420 });
+
+  ctx.textAlign = 'center';
+  ctx.font = `400 12px ${MONO}`;
+  ctx.fillStyle = 'rgba(140,180,215,0.4)';
   ctx.fillText(
-    `C colour-safe ${theme.colorSafe ? 'ON' : 'off'}   ·   R reduced motion ${theme.reducedMotion ? 'ON' : 'off'}   ·   Q quality   ·   M mute`,
-    W / 2, H / 2 + 162,
+    `ESC switch player   ·   C colour-safe ${theme.colorSafe ? 'ON' : 'off'}   ·   R reduced motion ${theme.reducedMotion ? 'ON' : 'off'}   ·   Q quality   ·   M mute`,
+    W / 2, H - 26,
   );
   ctx.restore();
 }
@@ -503,22 +571,39 @@ export function drawGameOver(ctx, g, W, H, t) {
   ctx.fillText(`SCORE ${g.score}    WAVE ${g.wave}    ACCURACY ${acc}%    BEST ×${g.bestCombo}`,
                W / 2, H / 2 - 84);
 
-  const weak = g.skill.weakest(4);
-  if (weak.length) {
-    ctx.font = `700 16px ${MONO}`;
-    ctx.fillStyle = 'rgba(255,214,140,0.9)';
-    ctx.fillText('PRACTISE THESE', W / 2, H / 2 - 26);
+  const run = g.lastRun;
+  if (run && (run.place || run.beat.score)) {
+    const s = 1 + Math.sin(t * 3) * 0.03;
+    ctx.save();
+    ctx.translate(W / 2, H / 2 - 44);
+    ctx.scale(s, s);
     ctx.font = `700 30px ${MONO}`;
-    ctx.fillStyle = '#fff0d0';
-    ctx.fillText(weak.map((f) => `${f.a}×${f.b}`).join('    '), W / 2, H / 2 + 18);
-    ctx.font = `400 14px ${MONO}`;
-    ctx.fillStyle = 'rgba(150,200,235,0.55)';
-    ctx.fillText('these will show up more often next run', W / 2, H / 2 + 48);
+    ctx.fillStyle = '#fff0c4';
+    ctx.shadowColor = 'hsla(46,100%,60%,0.95)';
+    ctx.shadowBlur = 26;
+    ctx.fillText(
+      run.beat.score ? 'NEW PERSONAL BEST' : `#${run.place} ON THE BOARD`,
+      0, 0,
+    );
+    ctx.restore();
   }
 
+  const weak = g.skill.weakest(4);
+  if (weak.length) {
+    ctx.font = `700 13px ${MONO}`;
+    ctx.fillStyle = 'rgba(255,214,140,0.85)';
+    ctx.fillText('PRACTISE THESE', W / 2, H / 2 - 4);
+    ctx.font = `700 24px ${MONO}`;
+    ctx.fillStyle = '#fff0d0';
+    ctx.fillText(weak.map((f) => `${f.a}×${f.b}`).join('    '), W / 2, H / 2 + 28);
+  }
+
+  drawScores(ctx, g.scores, W / 2, H / 2 + 68, W,
+             { limit: 4, width: 420, highlight: run ? run.place : 0 });
+
   const a = 0.55 + Math.sin(t * 4) * 0.45;
-  ctx.font = `700 22px ${MONO}`;
+  ctx.font = `700 20px ${MONO}`;
   ctx.fillStyle = `rgba(255,232,170,${a * fade})`;
-  ctx.fillText('PRESS ENTER TO REDEPLOY', W / 2, H / 2 + 130);
+  ctx.fillText('ENTER to play again   ·   ESC to switch player', W / 2, H - 42);
   ctx.restore();
 }

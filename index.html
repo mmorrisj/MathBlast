@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>MathBlast</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -15,6 +15,12 @@
     background: #04060f;
     overflow: hidden;
     font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    /* Phones otherwise pan, pinch and flash a selection highlight mid-game. */
+    touch-action: none;
+    overscroll-behavior: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
   }
   body {
     display: grid;
@@ -31,6 +37,26 @@
     box-shadow: 0 0 90px rgba(60, 170, 255, 0.14), 0 0 0 1px rgba(120, 190, 255, 0.09);
     touch-action: none;
   }
+  /* Name entry rides a real input so phones raise the native keyboard. It is
+     invisible: the canvas draws the field, this only carries focus and text. */
+  #nameField {
+    position: fixed;
+    top: 42%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    display: none;
+    width: 320px;
+    height: 60px;
+    padding: 0;
+    border: 0;
+    outline: none;
+    background: transparent;
+    color: transparent;
+    caret-color: transparent;
+    font-size: 16px;             /* below 16px iOS zooms the page on focus */
+    text-align: center;
+    z-index: 5;
+  }
   #hint {
     position: fixed;
     bottom: 10px;
@@ -42,10 +68,15 @@
     pointer-events: none;
     user-select: none;
   }
+  /* The on-screen buttons carry these on a phone; the strip just adds clutter. */
+  @media (pointer: coarse) { #hint { display: none; } }
 </style>
 </head>
 <body>
   <canvas id="game" width="1280" height="720" aria-label="MathBlast game"></canvas>
+  <input id="nameField" type="text" maxlength="40" autocomplete="off"
+         autocorrect="off" autocapitalize="words" spellcheck="false"
+         aria-label="Player name">
   <div id="hint">H how to play &nbsp;·&nbsp; P pause &nbsp;·&nbsp; M mute</div>
   <script type="module" src="./src/main.js"></script>
 </body>

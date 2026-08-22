@@ -9,8 +9,18 @@ import { clamp, randInt } from './util.js';
 const STORE_KEY = 'mathblast.skill.v1';
 
 export class SkillTable {
-  constructor() {
+  // Scoped to a profile id, so two people sharing a device each get their own
+  // adaptive difficulty instead of averaging into one blurred learner.
+  constructor(profileId = null) {
     this.facts = new Map();   // "a*b" -> { a, b, ema, misses, seen }
+    this.storeKey = profileId ? `mathblast.skill.v2.${profileId}` : STORE_KEY;
+    this.load();
+  }
+
+  // Swap to a different player without rebuilding the game.
+  useProfile(profileId) {
+    this.storeKey = profileId ? `mathblast.skill.v2.${profileId}` : STORE_KEY;
+    this.facts.clear();
     this.load();
   }
 
@@ -60,7 +70,7 @@ export class SkillTable {
 
   load() {
     try {
-      const raw = localStorage.getItem(STORE_KEY);
+      const raw = localStorage.getItem(this.storeKey);
       if (!raw) return;
       for (const f of JSON.parse(raw)) this.facts.set(this.key(f.a, f.b), f);
     } catch { /* private mode, corrupted value -- start fresh */ }
@@ -68,7 +78,7 @@ export class SkillTable {
 
   save() {
     try {
-      localStorage.setItem(STORE_KEY, JSON.stringify([...this.facts.values()]));
+      localStorage.setItem(this.storeKey, JSON.stringify([...this.facts.values()]));
     } catch { /* storage unavailable; adaptivity just won't persist */ }
   }
 }
