@@ -5,7 +5,7 @@
 // You neutralise one by firing its additive inverse. Let it escape off the top
 // and it takes a shield plate with it, so a negative left alone subtracts.
 
-import { TAU, rand, clamp, easeOutCubic } from '../../util.js';
+import { TAU, rand, clamp, easeOutCubic , toInt } from '../../util.js';
 import { theme } from '../../theme.js';
 import { Beast } from './base.js';
 
@@ -28,7 +28,7 @@ export class Voidling extends Beast {
   get hintText() { return `−${this.value} + ? =`; }
   get faceText() { return `−${this.value}`; }
   get answerText() { return String(this.value); }
-  accepts(raw) { return parseInt(raw, 10) === this.value; }
+  accepts(raw) { return toInt(raw) === this.value; }
 
   emitCollapse(particles, prevT) {
     if (this.state !== 'dying' || prevT > 0) return;

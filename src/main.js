@@ -146,8 +146,14 @@ class Game {
       if (e.key === 'ArrowLeft') { this._cycleTarget(-1); return; }
       if (e.key === 'ArrowRight') { this._cycleTarget(1); return; }
 
-      if ((e.key >= '0' && e.key <= '9') || e.key === '/') {
-        if (this.input.length < 5) { this.input += e.key; this.inputPulse = 1; }
+      // x and * both enter the multiplication sign, so a boulder's "? × ?"
+      // question can actually be answered as a pair.
+      const mult = e.key === 'x' || e.key === 'X' || e.key === '*';
+      if ((e.key >= '0' && e.key <= '9') || e.key === '/' || mult) {
+        if (this.input.length < 7) {
+          this.input += mult ? '×' : e.key;
+          this.inputPulse = 1;
+        }
       } else if (e.key === 'Backspace') {
         this.input = this.input.slice(0, -1); this.inputPulse = 1;
       } else if (e.key === 'Escape') {

@@ -256,6 +256,45 @@ async function main() {
   check('a revealed prime still dies when named',
         (await state(() => window.game.beasts.filter((b) => b.alive).length)) === 0);
 
+  // --- a boulder accepts what its label asks for ----------------------------
+  // The rock reads "? × ? = 48", so both halves of that question have to work:
+  // one factor, or the pair. A pair is judged on its product.
+  const ans = await page.evaluate(async () => {
+    const M = await import('/src/entities/beasts/index.js');
+    const b = new M.SplitBeast(48, 0, 0, 0);
+    const pr = new M.SplitBeast(17, 0, 0, 0);
+    const mu = new M.MultBeast(7, 8, 0, 0, 0);
+    return {
+      one: b.accepts('12') && b.accepts('4') && b.accepts('6'),
+      pair: b.accepts('12×4') && b.accepts('4×12') && b.accepts('6×8'),
+      badPair: b.accepts('12×9') || b.accepts('1×48') || b.accepts('7×7'),
+      badOne: b.accepts('5') || b.accepts('1') || b.accepts('48'),
+      primePair: pr.accepts('4×5'),
+      primeNamed: pr.accepts('17'),
+      // parseInt("56×1") is 56, which used to pass as the product of 7x8.
+      looseParse: mu.accepts('56×1') || mu.accepts('56x'),
+      exact: mu.accepts('56'),
+    };
+  });
+  check('a boulder takes one factor or the whole pair', ans.one && ans.pair);
+  check('a wrong pair is rejected on its product', !ans.badPair && !ans.badOne);
+  check('a prime takes no pair, only its own name', !ans.primePair && ans.primeNamed);
+  check('trailing junk no longer parses as a right answer', !ans.looseParse && ans.exact);
+
+  // Typing the pair through the keyboard, x for the sign.
+  await only('new M.SplitBeast(48, 620, 250, 0)');
+  await waitTarget();
+  await page.evaluate(() => { window.game.input = ''; });
+  for (const k of ['1', '2', 'x', '4']) await page.keyboard.press(k);
+  check('x types the multiplication sign',
+        (await state(() => window.game.input)) === '12×4');
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(900);
+  const pairKids = await state(() =>
+    window.game.beasts.filter((b) => b.alive).map((b) => b.n).sort((a, b) => a - b));
+  check('a pair answer splits the rock into exactly those two factors',
+        JSON.stringify(pairKids) === '[4,12]');
+
   // --- fractions ----------------------------------------------------------
   await only('new M.FractionBeast(2, 8, 640, 230, 0)');
   await waitTarget();

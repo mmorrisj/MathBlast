@@ -79,3 +79,16 @@ export function properFactors(n) {
 }
 
 export const gcd = (a, b) => (b === 0 ? Math.abs(a) : gcd(b, a % b));
+
+// Strict integer parse. parseInt() stops at the first non-digit, so
+// parseInt("12x9") is 12 -- which silently accepts a wrong answer as a right
+// one. Anything that is not purely digits returns null here.
+export function toInt(raw) {
+  return /^\d+$/.test(String(raw).trim()) ? parseInt(raw, 10) : null;
+}
+
+// "12×4" -> [12, 4]. Accepts x and * as well as the multiplication sign.
+export function parsePair(raw) {
+  const m = /^(\d+)\s*[×x*]\s*(\d+)$/.exec(String(raw).trim());
+  return m ? [parseInt(m[1], 10), parseInt(m[2], 10)] : null;
+}

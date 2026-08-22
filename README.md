@@ -31,7 +31,7 @@ Any static server works. It must be served over HTTP rather than opened as a
 
 | Key | Action |
 | --- | --- |
-| `0`–`9`, `/` | Type the answer (`/` for fractions, e.g. `3/4`) |
+| `0`–`9`, `/`, `x` | Type the answer (`/` for fractions like `3/4`; `x` types `×` for factor pairs like `6×8`) |
 | `Enter` | Fire &nbsp;·&nbsp; `Backspace` delete &nbsp;·&nbsp; `Esc` clear |
 | `[` `]` or click | Choose which beast to solve; otherwise the turret auto-targets the most dangerous one |
 | `Space` | Overcharge beam, once charged |
@@ -51,7 +51,7 @@ d-pad + A, with B or RT for the beam.
 | | |
 | --- | --- |
 | **Multiplication lattice** | `a × b` as a countable grid. Solving runs a diagonal collapse wave through it, so the kill animation is a picture of the array being consumed. |
-| **Splitting asteroid** | Labelled `? × ? = 48`. Hit a composite with any proper factor and it fractures into two proportionally sized rocks. Composites show fracture seams; primes show an unbreakable crystalline core. Trying to factor a prime costs nothing — the rock reveals itself as `17 is PRIME` and you name it instead. |
+| **Splitting asteroid** | Labelled `? × ? = 48`, and it accepts either half of that question: one factor (`6`) or the whole pair (`6×8`). A pair is judged on its product, so `12×9` is wrong for 48 even though `12` alone would be right. Hit a composite and it fractures into two proportionally sized rocks. Composites show fracture seams; primes show an unbreakable crystalline core. Trying to factor a prime costs nothing — the rock reveals itself as `17 is PRIME` and you name it instead. |
 | **Fraction crystal** | A shell with a wedge missing, faceted at every `1/q` so the denominator is countable. Any equivalent fraction is accepted — `2/8` and `1/4` cut the same hole, and the player discovers that rather than being told. |
 | **Voidling** | A negative. Rises instead of falling, drawn as a hole rather than an object. Fire its additive inverse to annihilate it; let it escape off the top and it takes shield energy with it. |
 | **Boss equation** | `3x + 7 = 22`, cracked one step at a time: isolate, solve, verify. Each step shatters one of three armour rings, so the algebra and the armour come apart together. |
@@ -198,7 +198,7 @@ quality manager and the `?q=` override are the mitigation.
 ## Testing
 
 `npm test` drives the real game in headless Chromium and asserts on live state —
-38 checks covering the impact pipeline, magnitude scaling, every beast type,
+44 checks covering the impact pipeline, magnitude scaling, every beast type,
 overcharge, landings, the adaptive music, both accessibility modes, both input
 modes, game over and restart, plus an end-to-end run to wave 7.
 

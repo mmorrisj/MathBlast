@@ -352,6 +352,7 @@ export function drawTitle(ctx, W, H, t) {
 
   const lines = [
     'TYPE the answer  ·  ENTER fire  ·  SPACE overcharge beam',
+    'Boulders take one factor (6) or both (6×8) — x types the ×.',
     'Click a beast, or press [ and ], to choose which one to solve.',
     'Tap or use a gamepad to pick from four answers instead.',
     '',

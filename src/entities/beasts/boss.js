@@ -7,7 +7,7 @@
 // Each correct step shatters one of three concentric rings, so the algebra and
 // the armour come apart together.
 
-import { TAU, rand, clamp, roundRect, easeOutCubic } from '../../util.js';
+import { TAU, rand, clamp, roundRect, easeOutCubic , toInt } from '../../util.js';
 import { theme } from '../../theme.js';
 import { Beast } from './base.js';
 
@@ -48,7 +48,7 @@ export class BossBeast extends Beast {
     return String(this.c);
   }
 
-  accepts(raw) { return parseInt(raw, 10) === parseInt(this.answerText, 10); }
+  accepts(raw) { return toInt(raw) === parseInt(this.answerText, 10); }
 
   // Only the last stage kills it; earlier stages crack a ring and continue.
   resolve() {
