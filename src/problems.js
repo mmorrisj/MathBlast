@@ -84,13 +84,14 @@ export class SkillTable {
 }
 
 // The range of facts widens as the player clears waves.
-export function tableRangeForWave(wave) {
-  const hi = clamp(4 + Math.floor(wave * 0.9), 5, 12);
+export function tableRangeForWave(wave, max = 12) {
+  const hi = clamp(4 + Math.floor(wave * 0.9), 5, max);
   return { lo: 2, hi };
 }
 
-export function makeProblem(skill, wave) {
-  const { lo, hi } = tableRangeForWave(wave);
+// `max` is the tier's ceiling: single digits on Easy, twelves above that.
+export function makeProblem(skill, wave, max = 12) {
+  const { lo, hi } = tableRangeForWave(wave, max);
   const candidates = [];
   let total = 0;
   for (let a = lo; a <= hi; a++) {

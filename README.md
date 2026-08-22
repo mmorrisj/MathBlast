@@ -5,6 +5,30 @@ descend toward your planet; the only way to stop one is to solve it.
 
 ![MathBlast in play](docs/screenshot.png)
 
+## Difficulty
+
+Three tiers, each a different curriculum rather than the same problems sped up.
+Chosen on the title screen and remembered per player.
+
+| | | |
+| --- | --- | --- |
+| **EASY** | Grade 3 | Addition and subtraction as base-ten blocks, single-digit times tables, a missing-addend boss. No negatives — grade 3 has not met them. |
+| **MEDIUM** | Grades 4–6 | Times tables to twelve, factoring and primes, unit fractions, additive inverses, a one-step equation boss. |
+| **HARD** | Grade 7 | Signed integer multiply and divide, fraction sums with unlike denominators, percentages, squares and roots, a two-step equation boss with negative solutions. |
+
+![Easy tier](docs/tier-easy.png)
+
+Easy draws addition and subtraction the way the material is taught: a rod is
+ten, a square is one, and subtraction strikes out the part being taken away —
+so a stuck player can count, exactly as they can count a `7 × 8` lattice.
+
+![Hard tier](docs/tier-hard.png)
+
+Hard reuses the same rule. Negatives are dark chips with a bright rim, borrowed
+from the voidling, so the sign rules are learned by seeing which pairings make
+which result. A percentage is the lit part of a ticked bar. `7²` is a square
+asking for its area and `√81` is the same square asking for its side.
+
 ## The design rule
 
 > The math should *be* the graphics, not decorate them.
@@ -59,7 +83,8 @@ Any static server works. It must be served over HTTP rather than opened as a
 
 | Key | Action |
 | --- | --- |
-| `0`–`9`, `/`, `x` | Type the answer (`/` for fractions like `3/4`; `x` types `×` for factor pairs like `6×8`) |
+| `0`–`9`, `/`, `x`, `-` | Type the answer (`/` for fractions like `3/4`; `x` types `×` for pairs like `6×8`; `-` for negative answers) |
+| `←` `→` | Choose difficulty (on the title screen) |
 | `Enter` | Fire &nbsp;·&nbsp; `Backspace` delete &nbsp;·&nbsp; `Esc` clear |
 | `[` `]` or click | Choose which beast to solve; otherwise the turret auto-targets the most dangerous one |
 | `Space` | Overcharge beam, once charged |
@@ -82,7 +107,7 @@ d-pad + A, with B or RT for the beam.
 | --- | --- |
 | **Multiplication lattice** | `a × b` as a countable grid. Solving runs a diagonal collapse wave through it, so the kill animation is a picture of the array being consumed. |
 | **Splitting asteroid** | Labelled `? × ? = 48`, and it accepts either half of that question: one factor (`6`) or the whole pair (`6×8`). A pair is judged on its product, so `12×9` is wrong for 48 even though `12` alone would be right. Hit a composite and it fractures into two proportionally sized rocks. Composites show fracture seams; primes show an unbreakable crystalline core. Trying to factor a prime costs nothing — the rock reveals itself as `17 is PRIME` and you name it instead. |
-| **Fraction crystal** | A shell with a wedge missing, faceted at every `1/q` so the denominator is countable. Any equivalent fraction is accepted — `2/8` and `1/4` cut the same hole, and the player discovers that rather than being told. |
+| **Fraction crystal** | Labelled `? / 8`, a shell with a wedge missing, faceted at every `1/q` so the denominator is countable. Takes the counted numerator (`3`) or any equivalent fraction (`3/8`, `6/16`). |
 | **Voidling** | A negative. Rises instead of falling, drawn as a hole rather than an object. Fire its additive inverse to annihilate it; let it escape off the top and it takes shield energy with it. |
 | **Boss equation** | `3x + 7 = 22`, cracked one step at a time: isolate, solve, verify. Each step shatters one of three armour rings, so the algebra and the armour come apart together. |
 
@@ -124,8 +149,14 @@ Fully synthesized — no audio assets, not even an impulse response.
   progressions), so minute eight does not sound like minute one.
 - **Everything is quantized to the beat grid**, which is most of the difference
   between "arcade noise" and "you are playing the track".
-- **Four stems fade in with proximity**, making the mix double as a threat meter:
+- **Five stems fade in with proximity**, making the mix double as a threat meter:
   silence at the top of the screen, drums by the time something is about to land.
+- **The arrangement escalates by sector.** Every three waves the track moves up
+  a stage: a melodic hook enters and thickens (0 → 6 → 9 → 12 notes a bar), hats
+  double to sixteenths, the bassline adds offbeat stabs, the kick gains a
+  pickup, and a sidechain pump deepens from nothing to 0.54. Tempo runs 100 →
+  136 BPM. Each wave arrives on a riser through the held silence and lands on a
+  drop.
 - **Panned by screen position**, with a convolution reverb built from
   exponentially decaying noise, and a held breath — everything cuts, the tail
   carries — between waves.
@@ -133,6 +164,16 @@ Fully synthesized — no audio assets, not even an impulse response.
 Wrong answers never buzz. The beast lurches closer and the combo resets, but
 there is no harsh error tone and the problem stays on screen. The punishment is
 proximity, not a scolding.
+
+## Sectors
+
+Progress is banded rather than smeared — twelve degrees of hue a wave is
+invisible while you are playing. Every three waves the sky changes sector, with
+its own name, nebula strength and star tint, announced on the wave banner.
+
+| Wave 1 — Blue Drift | Wave 10 — Crimson Deep |
+| --- | --- |
+| ![Sector 1](docs/sector-1.png) | ![Sector 4](docs/sector-10.png) |
 
 ## Feel
 
@@ -228,7 +269,7 @@ quality manager and the `?q=` override are the mitigation.
 ## Testing
 
 `npm test` drives the real game in headless Chromium and asserts on live state —
-70 checks covering the impact pipeline, magnitude scaling, every beast type,
+79 checks covering the impact pipeline, magnitude scaling, every beast type,
 overcharge, landings, the adaptive music, both accessibility modes, both input
 modes, game over and restart, plus an end-to-end run to wave 7.
 

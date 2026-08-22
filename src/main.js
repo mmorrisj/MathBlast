@@ -8,6 +8,7 @@ import { theme, setThemeWave, setColorSafe, setReducedMotion } from './theme.js'
 import { Audio } from './audio.js';
 import { SkillTable, makeChoices } from './problems.js';
 import { Profiles, Scores, cleanName, MAX_NAME } from './profiles.js';
+import { TIERS, DEFAULT_TIER, tierById } from './difficulty.js';
 import { Camera } from './fx/camera.js';
 import { Particles } from './fx/particles.js';
 import { Shockwaves } from './fx/shockwave.js';
@@ -17,7 +18,7 @@ import { Starfield } from './render/starfield.js';
 import { Shield, CX } from './entities/shield.js';
 import { Projectile, Turret } from './entities/projectile.js';
 import { makeBeast, makeBoss, isBossWave, SplitBeast } from './entities/beasts/index.js';
-import { drawHud, drawTitle, drawGameOver, drawFocus, drawInterlude, drawHelp, choiceHitTest, setChoiceLayout } from './ui/hud.js';
+import { drawHud, drawTitle, drawGameOver, drawFocus, drawInterlude, drawHelp, choiceHitTest, setChoiceLayout, tierHitTest } from './ui/hud.js';
 import { Quality } from './quality.js';
 import { touchButtons, touchHitTest, drawTouchButtons, drawRotate } from './ui/touch.js';
 import { drawProfiles, profileHitTest, nameButton, drawScores, MAX_ROWS } from './ui/profile.js';
@@ -52,6 +53,8 @@ class Game {
     setChoiceLayout(this.touch);
     this.portrait = false;
     this.profileIndex = 0;
+    this.tierIndex = Math.max(0, TIERS.findIndex(
+      (x) => x.id === (this.profiles.active?.tier || DEFAULT_TIER)));
     this.naming = false;
     this.nameDraft = '';
     this.nameError = '';
@@ -81,6 +84,8 @@ class Game {
     window.addEventListener('resize', () => this._fit());
     document.addEventListener('visibilitychange', () => { if (document.hidden) this.paused = true; });
   }
+
+  get tier() { return TIERS[this.tierIndex] || tierById(DEFAULT_TIER); }
 
   reset() {
     this.shield = new Shield();
@@ -155,7 +160,9 @@ class Game {
       }
 
       if (this.state === 'title') {
-        if (e.key === 'Enter' || e.key === ' ') this._begin();
+        if (e.key === 'ArrowLeft') this._setTier(this.tierIndex - 1);
+        else if (e.key === 'ArrowRight') this._setTier(this.tierIndex + 1);
+        else if (e.key === 'Enter' || e.key === ' ') this._begin();
         else if (e.key === 'c' || e.key === 'C') setColorSafe(!theme.colorSafe);
         else if (e.key === 'r' || e.key === 'R') setReducedMotion(!theme.reducedMotion);
         else if (e.key === 'Escape') { this.state = 'profile'; this.stateTime = 0; }
@@ -197,9 +204,11 @@ class Game {
       // x and * both enter the multiplication sign, so a boulder's "? × ?"
       // question can actually be answered as a pair.
       const mult = e.key === 'x' || e.key === 'X' || e.key === '*';
-      if ((e.key >= '0' && e.key <= '9') || e.key === '/' || mult) {
+      // A leading minus only, so "5-3" cannot be typed as if it were a sum.
+      const minus = (e.key === '-' || e.key === '_') && this.input === '';
+      if ((e.key >= '0' && e.key <= '9') || e.key === '/' || mult || minus) {
         if (this.input.length < 7) {
-          this.input += mult ? '×' : e.key;
+          this.input += minus ? '−' : (mult ? '×' : e.key);
           this.inputPulse = 1;
         }
       } else if (e.key === 'Backspace') {
@@ -239,7 +248,12 @@ class Game {
         if (hit !== null) this._chooseProfile(hit);
         return;
       }
-      if (this.state === 'title') { this._begin(); return; }
+      if (this.state === 'title') {
+        const tierHit = tierHitTest(px, py, W);
+        if (tierHit >= 0) { this._setTier(tierHit); return; }
+        this._begin();
+        return;
+      }
       if (this.state === 'gameover') { this._begin(); return; }
       if (this.paused) { this.paused = false; return; }
 
@@ -311,6 +325,17 @@ class Game {
     this.stateTime = 0;
   }
 
+  // The tier is remembered per player, since it tracks where they are.
+  _setTier(i) {
+    const n = TIERS.length;
+    const next = ((i % n) + n) % n;
+    if (next === this.tierIndex) return;
+    this.tierIndex = next;
+    const p = this.profiles.active;
+    if (p) { p.tier = TIERS[next].id; this.profiles.save(); }
+    this.audio.plate ? this.audio.plate() : this.audio.fire(640);
+  }
+
   _chooseProfile(i) {
     const shown = Math.min(this.profiles.list.length, MAX_ROWS);
     if (i === 'new' || i === shown) { this._startNaming(); return; }
@@ -319,6 +344,7 @@ class Game {
     this.profiles.select(p.id);
     this.skill.useProfile(p.id);
     this.profileIndex = i;
+    this.tierIndex = Math.max(0, TIERS.findIndex((x) => x.id === (p.tier || DEFAULT_TIER)));
     this.state = 'title';
     this.stateTime = 0;
     this.audio.start();
@@ -485,6 +511,7 @@ class Game {
     this.wave++;
     setThemeWave(this.wave);
     this.audio.setWave(this.wave);
+    if (this.wave > 1) this.audio.drop();
     this.waveBanner = 2.2;
     this.waveMisses = 0;
     this.wavePhase = 'active';
@@ -492,11 +519,11 @@ class Game {
     if (isBossWave(this.wave)) {
       this.waveRemaining = 2;
       this.spawnTimer = 2.2;
-      const b = makeBoss(this.wave, CX + rand(200, -200), -140, 26 + this.wave);
+      const b = makeBoss(this.tier, this.wave, CX + rand(200, -200), -140, 26 + this.wave);
       this.beasts.push(b);
       this.boss = b;
     } else {
-      this.waveRemaining = 3 + Math.floor(this.wave * 1.4);
+      this.waveRemaining = Math.max(2, Math.round((3 + this.wave * 1.4) * this.tier.waveSize));
       this.spawnTimer = 0.6;
     }
   }
@@ -508,6 +535,8 @@ class Game {
     this.phaseTimer = INTERLUDE;
     this.lastPerfect = this.waveMisses === 0;
     this.audio.holdBeat(1.3);
+    // Build through the silence so the next wave arrives on a drop.
+    this.audio.riser(1.15, INTERLUDE - 1.2);
     this.camera.punchIn(0.94, 0, 0);
     if (this.lastPerfect) {
       this.audio.resolve();
@@ -522,7 +551,7 @@ class Game {
   _spawn() {
     const x = clamp(rand(W - 160, 160), 120, W - 120);
     const speed = 34 + this.wave * 4 + rand(10);
-    this.beasts.push(makeBeast(this.wave, this.skill, x, -80 - rand(120), speed));
+    this.beasts.push(makeBeast(this.tier, this.wave, this.skill, x, -80 - rand(120), speed));
     this.waveRemaining--;
   }
 
@@ -681,6 +710,7 @@ class Game {
     });
     const place = this.scores.add({
       name, score: this.score, wave: this.wave, accuracy, combo: this.bestCombo,
+      tier: this.tier.id,
     });
     this.lastRun = { place, beat, name, accuracy };
   }
@@ -868,7 +898,7 @@ class Game {
     // Instructions replace the title/game-over overlay rather than stacking on
     // top of it -- a 94%-opaque scrim still lets big glowing text read through.
     if (this.help) {
-      drawHelp(this.out, W, H);
+      drawHelp(this.out, W, H, this);
     } else if (this.state === 'profile') {
       drawProfiles(this.out, this, W, H, this.time);
     } else {

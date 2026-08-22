@@ -2,9 +2,10 @@
 // pick up bloom; the title, interlude and game-over screens go on top of it so
 // they stay crisp and full colour.
 
-import { clamp, lerp, easeOutElastic, easeOutCubic, roundRect, TAU } from '../util.js';
+import { clamp, lerp, easeOutElastic, easeOutCubic, roundRect, TAU, showSigned } from '../util.js';
 import { theme } from '../theme.js';
 import { drawScores } from './profile.js';
+import { TIERS } from '../difficulty.js';
 
 const MONO = '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace';
 
@@ -30,6 +31,24 @@ function choiceRect(i, count) {
 export function choiceHitTest(px, py, choices) {
   for (let i = 0; i < choices.length; i++) {
     const r = choiceRect(i, choices.length);
+    if (px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h) return i;
+  }
+  return -1;
+}
+
+const TIER_W = 176;
+const TIER_H = 46;
+const TIER_GAP = 12;
+const TIER_Y = 470;
+
+export function tierRect(i, W) {
+  const total = TIERS.length * TIER_W + (TIERS.length - 1) * TIER_GAP;
+  return { x: W / 2 - total / 2 + i * (TIER_W + TIER_GAP), y: TIER_Y, w: TIER_W, h: TIER_H };
+}
+
+export function tierHitTest(px, py, W) {
+  for (let i = 0; i < TIERS.length; i++) {
+    const r = tierRect(i, W);
     if (px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h) return i;
   }
   return -1;
@@ -79,7 +98,7 @@ export function drawHud(ctx, g, W, H) {
   if (g.waveBanner > 0 && g.wavePhase === 'active') {
     const p = clamp(1 - g.waveBanner / 2.2, 0, 1);
     const a = Math.sin(p * Math.PI);
-    const label = `WAVE ${g.wave}`;
+    const label = `WAVE ${g.wave}   ·   ${theme.bandName}`;
     ctx.font = `700 30px ${MONO}`;
     const tw = ctx.measureText(label).width;
     const spread = 120 + easeOutCubic(p) * 190;
@@ -259,7 +278,7 @@ function drawEntry(ctx, g, W, H) {
       }
       ctx.font = `700 ${choiceH > 70 ? 36 : 30}px ${MONO}`;
       ctx.fillStyle = sel ? '#fff6dc' : 'rgba(220,238,252,0.85)';
-      ctx.fillText(g.choices[i], r.x + r.w / 2, r.y + r.h / 2 + 1);
+      ctx.fillText(showSigned(g.choices[i]), r.x + r.w / 2, r.y + r.h / 2 + 1);
       ctx.restore();
     }
     ctx.restore();
@@ -400,31 +419,60 @@ export function drawTitle(ctx, W, H, t, g) {
   ctx.fillStyle = '#eaf6ff';
   ctx.shadowColor = `hsla(${theme.friendly},100%,60%,0.9)`;
   ctx.shadowBlur = 44;
-  ctx.fillText('MATHBLAST', W / 2, H / 2 - 96 + bob);
+  ctx.fillText('MATHBLAST', W / 2, 118 + bob);
   ctx.shadowBlur = 0;
 
   const player = g && g.profiles.active;
   if (player) {
     ctx.font = `600 19px ${MONO}`;
     ctx.fillStyle = `hsla(${theme.friendly},90%,74%,0.95)`;
-    ctx.fillText(player.name, W / 2, H / 2 - 18);
-    ctx.font = `400 14px ${MONO}`;
+    ctx.fillText(player.name, W / 2, 206);
+    ctx.font = `400 13px ${MONO}`;
     ctx.fillStyle = 'rgba(150,190,220,0.6)';
     ctx.fillText(player.games ? `your best ${player.bestScore} · wave ${player.bestWave}`
                               : 'first run — good luck',
-                 W / 2, H / 2 + 8);
+                 W / 2, 226);
+  }
+
+  // Difficulty. Each tier is a different curriculum, so it is chosen before the
+  // run rather than buried in an options screen.
+  if (g) {
+    ctx.font = `700 12px ${MONO}`;
+    ctx.fillStyle = `hsla(${theme.friendly},90%,66%,0.75)`;
+    ctx.fillText('DIFFICULTY   ◀ ▶', W / 2, TIER_Y - 18);
+    for (let i = 0; i < TIERS.length; i++) {
+      const r = tierRect(i, W);
+      const on = i === g.tierIndex;
+      ctx.fillStyle = on ? 'rgba(18,38,62,0.92)' : 'rgba(10,18,34,0.6)';
+      roundRect(ctx, r.x, r.y, r.w, r.h, 10);
+      ctx.fill();
+      ctx.lineWidth = on ? 2.4 : 1.2;
+      ctx.strokeStyle = on
+        ? `hsla(48,100%,70%,${0.85 + Math.sin(t * 7) * 0.15})`
+        : `hsla(${theme.friendly},70%,60%,0.28)`;
+      ctx.stroke();
+      ctx.font = `700 17px ${MONO}`;
+      ctx.fillStyle = on ? '#fff6dc' : 'rgba(180,214,240,0.7)';
+      ctx.fillText(TIERS[i].name, r.x + r.w / 2, r.y + 19);
+      ctx.font = `400 12px ${MONO}`;
+      ctx.fillStyle = on ? 'rgba(255,236,190,0.8)' : 'rgba(150,190,220,0.5)';
+      ctx.fillText(TIERS[i].grade, r.x + r.w / 2, r.y + 35);
+    }
+    ctx.font = `400 14px ${MONO}`;
+    ctx.fillStyle = 'rgba(170,210,240,0.75)';
+    ctx.fillText(TIERS[g.tierIndex].blurb, W / 2, TIER_Y + TIER_H + 24);
   }
 
   const a = 0.55 + Math.sin(t * 4) * 0.45;
-  ctx.font = `700 26px ${MONO}`;
+  ctx.font = `700 24px ${MONO}`;
   ctx.fillStyle = `rgba(255,232,170,${a})`;
-  ctx.fillText('PRESS ENTER TO BEGIN', W / 2, H / 2 + 56);
+  ctx.fillText('PRESS ENTER TO BEGIN', W / 2, TIER_Y + TIER_H + 62);
 
-  ctx.font = `600 16px ${MONO}`;
+  ctx.font = `600 15px ${MONO}`;
   ctx.fillStyle = `hsla(${theme.friendly},90%,72%,0.9)`;
-  ctx.fillText('H — HOW TO PLAY', W / 2, H / 2 + 96);
+  ctx.fillText('H — HOW TO PLAY', W / 2, TIER_Y + TIER_H + 92);
 
-  if (g) drawScores(ctx, g.scores, W / 2, H / 2 + 136, W, { limit: 4, width: 420 });
+  if (g) drawScores(ctx, g.scores, W / 2, 250, W, { limit: 3, width: 420 });
 
   ctx.textAlign = 'center';
   ctx.font = `400 12px ${MONO}`;
@@ -443,6 +491,7 @@ const CONTROLS = [
   ['0 – 9', 'type a number'],
   ['x', 'types × — for factor pairs like 6×8'],
   ['/', 'fraction bar — 3/8'],
+  ['−', 'minus, for negative answers (hard)'],
   ['ENTER', 'fire the answer'],
   ['BACKSPACE', 'delete a digit   ·   ESC clears'],
   ['CHOOSING A TARGET', null],
@@ -454,16 +503,34 @@ const CONTROLS = [
   ['TAB', 'switch between typing and four answers'],
 ];
 
-const BESTIARY = [
-  ['7 × 8', 'Grid. Count it if you need to. Type the product — 56.'],
-  ['? × ? = 48', 'Boulder. Type one factor (6) or both (6×8).'],
-  ['red boulder', 'Prime — nothing divides it. Type the number itself.'],
-  ['? of 8', 'Crystal with a piece missing. Type it as 3/8.'],
-  ['−6 + ? = 0', 'Voidling. Rises instead of falling. Type 6.'],
-  ['3x + 7 = 22', 'Boss. One step at a time; each step cracks a ring.'],
-];
+// Only the beasts the chosen tier actually sends, so the list is a reference
+// for this run rather than a catalogue of everything in the game.
+const BESTIARY = {
+  easy: [
+    ['27 + 46', 'Blocks. Rods are tens, squares are ones — count them.'],
+    ['52 − 17', 'The struck-out blocks are the ones taken away.'],
+    ['7 × 8', 'Grid. Count it if you need to. Type the product — 56.'],
+    ['? + 12 = 30', 'Boss. Take away to find the missing number, then check.'],
+  ],
+  medium: [
+    ['7 × 8', 'Grid. Count it if you need to. Type the product — 56.'],
+    ['? × ? = 48', 'Boulder. Type one factor (6) or both (6×8).'],
+    ['red boulder', 'Prime — nothing divides it. Type the number itself.'],
+    ['? / 8', 'Crystal. Count the missing slices: type 3 or 3/8.'],
+    ['−6 + ? = 0', 'Voidling. Rises instead of falling. Type 6.'],
+    ['3x + 7 = 22', 'Boss. One step at a time; each step cracks a ring.'],
+  ],
+  hard: [
+    ['(−8) × 7', 'Dark chips are negative. Answers can be too — press −.'],
+    ['1/2 + 1/3', 'Two discs, unlike slices. Answer as p/q — 5/6.'],
+    ['15% of 80', 'The lit part of the bar. Ticks mark every tenth.'],
+    ['7²  ·  √81', 'A square: area from the side, or the side from the area.'],
+    ['? × ? = 48', 'Boulder. One factor (6) or both (6×8). Red ones are prime.'],
+    ['−3x − 5 = −11', 'Boss. Undo the sum, undo the multiply, then check.'],
+  ],
+};
 
-export function drawHelp(ctx, W, H) {
+export function drawHelp(ctx, W, H, g) {
   ctx.save();
   ctx.fillStyle = 'rgba(3,5,14,0.94)';
   ctx.fillRect(0, 0, W, H);
@@ -509,19 +576,22 @@ export function drawHelp(ctx, W, H) {
     y += 25;
   }
 
-  // Right column: what you are shooting at.
+  // Right column: what this tier is actually sending.
+  const tierId = (g && g.tier && g.tier.id) || 'medium';
+  const list = BESTIARY[tierId] || BESTIARY.medium;
+  const heading = `WHAT YOU ARE FIGHTING — ${tierId.toUpperCase()}`;
   y = 150;
   ctx.font = `700 13px ${MONO}`;
   ctx.fillStyle = `hsla(${theme.friendly},90%,66%,0.9)`;
-  ctx.fillText('WHAT YOU ARE FIGHTING', 664, y + 12);
+  ctx.fillText(heading, 664, y + 12);
   ctx.strokeStyle = `hsla(${theme.friendly},80%,60%,0.22)`;
   ctx.lineWidth = 1;
   ctx.beginPath();
-  ctx.moveTo(664 + ctx.measureText('WHAT YOU ARE FIGHTING').width + 14, y + 8);
+  ctx.moveTo(664 + ctx.measureText(heading).width + 14, y + 8);
   ctx.lineTo(W - 108, y + 8);
   ctx.stroke();
   y += 46;
-  for (const [label, desc] of BESTIARY) {
+  for (const [label, desc] of list) {
     ctx.font = `700 16px ${MONO}`;
     ctx.fillStyle = '#ffd9b8';
     ctx.fillText(label, 672, y);

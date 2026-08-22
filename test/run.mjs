@@ -178,7 +178,7 @@ async function main() {
       composite: new M.SplitBeast(48, 0, 0, 0).promptText,
       prime: new M.SplitBeast(17, 0, 0, 0).promptText,
       voidling: new M.Voidling(6, 0, 0, 0).promptText,
-      boss: new M.BossBeast(3, 7, 5, 0, 0, 0).promptText,
+      boss: new M.BossBeast([{prompt:'3x + 7 = 22',hint:'isolate: 22 − 7 =',answer:'15'},{prompt:'3x = 15',hint:'solve: 15 ÷ 3 =',answer:'5'},{prompt:'x = 5',hint:'verify: 3 × 5 + 7 =',answer:'22'}], 0, 0, 0).promptText,
       fraction: new M.FractionBeast(3, 8, 0, 0, 0).promptText,
     };
   });
@@ -343,9 +343,16 @@ async function main() {
   await waitTarget();
   const eq = await state(() => {
     const b = window.game.targetBeast;
-    return { low: b.accepts('1/4'), raw: b.accepts('2/8'), bad: b.accepts('1/3') };
+    return {
+      low: b.accepts('1/4'), raw: b.accepts('2/8'), bad: b.accepts('1/3'),
+      // The label reads "? / 8", so a counted numerator has to work too --
+      // it did not, and no answer a player typed would land.
+      bare: b.accepts('2'), label: b.promptText, denom: b.accepts('8'),
+    };
   });
   check('equivalent fractions are accepted', eq.low && eq.raw && !eq.bad);
+  check('the crystal takes the numerator its label asks for',
+        eq.bare && eq.label === '? / 8' && !eq.denom);
   await type('2/8');
   await page.waitForTimeout(600);
 
@@ -361,7 +368,7 @@ async function main() {
         (await state(() => window.game.beasts.filter((b) => b.alive).length)) === 0);
 
   // --- boss ---------------------------------------------------------------
-  await only('new M.BossBeast(3, 7, 5, 640, 250, 0)');
+  await only(`new M.BossBeast([{prompt:'3x + 7 = 22',hint:'isolate: 22 − 7 =',answer:'15'},{prompt:'3x = 15',hint:'solve: 15 ÷ 3 =',answer:'5'},{prompt:'x = 5',hint:'verify: 3 × 5 + 7 =',answer:'22'}], 640, 250, 0)`);
   const answers = [];
   for (let i = 0; i < 3; i++) {
     await waitTarget();
@@ -516,6 +523,141 @@ async function main() {
   await page.keyboard.press('Escape');
   await page.waitForTimeout(200);
   check('ESC closes the instructions', !(await state(() => window.game.help)));
+
+  // --- difficulty tiers -------------------------------------------------------
+  // The single most valuable check here: every problem the generators can
+  // produce must accept its own stated answer. It sweeps all three tiers,
+  // every wave, every beast kind and every boss step.
+  const consistency = await state(async () => {
+    const M = await import('/src/entities/beasts/index.js');
+    const { TIERS } = await import('/src/difficulty.js');
+    const g = window.game;
+    const bad = [];
+    for (const tier of TIERS) {
+      for (let wave = 1; wave <= 10; wave++) {
+        for (let i = 0; i < 50; i++) {
+          const b = M.makeBeast(tier, wave, g.skill, 640, 100, 40);
+          if (!b.accepts(b.answerText)) {
+            bad.push(`${tier.id} ${b.constructor.name} "${b.promptText}" -> ${b.answerText}`);
+          }
+        }
+        const boss = M.makeBoss(tier, wave, 640, 100, 40);
+        for (let st = 0; st < boss.stages; st++) {
+          if (!boss.accepts(boss.answerText)) {
+            bad.push(`${tier.id} boss "${boss.promptText}" -> ${boss.answerText}`);
+          }
+          boss.resolve();
+        }
+      }
+    }
+    return { count: bad.length, sample: bad.slice(0, 4) };
+  });
+  check('every generated problem accepts its own answer', consistency.count === 0);
+  if (consistency.count) console.log(consistency.sample.join('\n'));
+
+  const kinds = await state(async () => {
+    const M = await import('/src/entities/beasts/index.js');
+    const { tierById } = await import('/src/difficulty.js');
+    const g = window.game;
+    const sweep = (id) => {
+      const tier = tierById(id);
+      const seen = new Set();
+      let maxMult = 0;
+      for (let wave = 1; wave <= 9; wave++) {
+        for (let i = 0; i < 120; i++) {
+          const b = M.makeBeast(tier, wave, g.skill, 640, 100, 40);
+          seen.add(b.constructor.name);
+          if (b.constructor.name === 'MultBeast') maxMult = Math.max(maxMult, b.a, b.b);
+        }
+      }
+      return { kinds: [...seen].sort(), maxMult };
+    };
+    return { easy: sweep('easy'), medium: sweep('medium'), hard: sweep('hard') };
+  });
+  check('easy is grade-3 only: adding, taking away, single-digit times tables',
+        JSON.stringify(kinds.easy.kinds) === '["ArithBeast","MultBeast"]' &&
+        kinds.easy.maxMult <= 9);
+  check('hard sends grade-7 work: integers, fraction sums, percents, powers',
+        ['FracOpBeast', 'IntegerBeast', 'PercentBeast', 'PowerBeast']
+          .every((k) => kinds.hard.kinds.includes(k)));
+  check('medium keeps the factors-and-fractions set',
+        kinds.medium.kinds.includes('SplitBeast') &&
+        kinds.medium.kinds.includes('FractionBeast') &&
+        !kinds.medium.kinds.includes('PercentBeast'));
+
+  const bosses = await state(async () => {
+    const M = await import('/src/entities/beasts/index.js');
+    const { TIERS } = await import('/src/difficulty.js');
+    const out = {};
+    for (const tier of TIERS) {
+      const b = M.makeBoss(tier, 6, 0, 0, 0);
+      out[tier.id] = b.stages;
+    }
+    return out;
+  });
+  check('each tier poses its own kind of equation',
+        bosses.easy === 2 && bosses.medium === 3 && bosses.hard === 3);
+
+  // Signed answers need the minus key and must round-trip through it.
+  const signed = await state(async () => {
+    const { IntegerBeast } = await import('/src/entities/beasts/integer.js');
+    const b = new IntegerBeast(-8, 7, 'x', 0, 0, 0);
+    return {
+      value: b.value,
+      ascii: b.accepts('-56'),
+      glyph: b.accepts('\u221256'),      // what the − key inserts
+      unsigned: b.accepts('56'),
+      prompt: b.promptText,
+    };
+  });
+  check('a negative answer is accepted from the minus key, and only when signed',
+        signed.value === -56 && signed.ascii && signed.glyph && !signed.unsigned);
+
+  // Sector banding: the point is that it is visible, so assert it moves.
+  const bands = await state(async () => {
+    const { setThemeWave, theme } = await import('/src/theme.js');
+    const g = window.game;
+    const rows = [];
+    for (const w of [1, 4, 7, 10]) {
+      setThemeWave(w);
+      g.audio.setWave(w);
+      rows.push({ name: theme.bandName, env: theme.env, bpm: g.audio.bpm, band: g.audio.band });
+    }
+    setThemeWave(1);
+    return rows;
+  });
+  check('sectors are visibly distinct, not a slow smear',
+        new Set(bands.map((b) => b.name)).size === 4 &&
+        bands[3].env - bands[0].env > 90 &&
+        bands[3].bpm - bands[0].bpm >= 30 &&
+        bands.map((b) => b.band).join() === '0,1,2,3');
+
+  // The arrangement, not just the tempo, has to change with the sector --
+  // "no noticeable difference as waves increased" was the report that prompted
+  // this, and a BPM number alone does not fix it.
+  const arrangement = await state(() => {
+    const a = window.game.audio;
+    const rows = [];
+    for (const band of [0, 1, 2, 3]) {
+      a.setWave(band * 3 + 1);
+      let hookNotes = 0;
+      const real = a.ctx.createOscillator.bind(a.ctx);
+      a.ctx.createOscillator = () => { hookNotes++; return real(); };
+      for (let s = 0; s < 16; s++) a._hook(0, a.ctx.currentTime + 8 + s * 0.01, s);
+      a.ctx.createOscillator = real;
+      let hats = 0;
+      for (let s = 0; s < 16; s++) if (s % (a.band >= 1 ? 1 : 2) === 0) hats++;
+      rows.push({ bpm: a.bpm, pump: a.pumpAmount, hook: hookNotes / 2, hats });
+    }
+    a.setWave(1);
+    return rows;
+  });
+  const rising = (key) => arrangement.every((r, i) => i === 0 || r[key] >= arrangement[i - 1][key]);
+  check('tempo, pump, hook and percussion all build with the sector',
+        rising('bpm') && rising('pump') && rising('hook') &&
+        arrangement[0].hook === 0 && arrangement[3].hook >= 10 &&
+        arrangement[0].hats === 8 && arrangement[3].hats === 16 &&
+        arrangement[3].bpm - arrangement[0].bpm >= 30);
 
   // --- scores and profile records -------------------------------------------
   const board = await state(() => {
