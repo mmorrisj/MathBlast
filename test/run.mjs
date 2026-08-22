@@ -448,6 +448,32 @@ async function main() {
         (await state(() => window.game.beasts.filter((b) => b.alive).length)) === 0);
   await page.keyboard.press('Tab');
 
+  // --- the instructions screen ---------------------------------------------
+  await page.keyboard.press('h');
+  await page.waitForTimeout(200);
+  check('H opens the instructions', await state(() => window.game.help));
+
+  const frozen = await page.evaluate(() => new Promise((res) => {
+    const g = window.game;
+    const t0 = g.time;
+    const y0 = g.beasts[0] ? g.beasts[0].y : null;
+    setTimeout(() => res({
+      dt: +(g.time - t0).toFixed(3),
+      dy: y0 === null ? 0 : +(g.beasts[0] ? g.beasts[0].y - y0 : 0).toFixed(2),
+    }), 700);
+  }));
+  check('the game holds still while the instructions are open',
+        frozen.dt === 0 && frozen.dy === 0);
+
+  await page.keyboard.press('7');
+  await page.keyboard.press('7');
+  check('keys do not leak into the answer box behind the instructions',
+        (await state(() => window.game.input)) === '');
+
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
+  check('ESC closes the instructions', !(await state(() => window.game.help)));
+
   // --- game over and restart ---------------------------------------------
   await page.evaluate(() => { window.game.cores = 1; });
   await only('new M.MultBeast(3, 3, 900, 300, 0)');

@@ -27,6 +27,8 @@ npm test           # browser-driven suite (needs Playwright; skips cleanly witho
 Any static server works. It must be served over HTTP rather than opened as a
 `file://` URL, because the code uses ES modules.
 
+![How to play](docs/how-to-play.png)
+
 ### Controls
 
 | Key | Action |
@@ -37,6 +39,7 @@ Any static server works. It must be served over HTTP rather than opened as a
 | `Space` | Overcharge beam, once charged |
 | `Tab` | Switch between typing and picking from four answers |
 | `C` / `R` | Colour-safe palette / reduced motion |
+| `H` | How to play — every control and beast in one screen, from the title or mid-game |
 | `P` / `M` / `Q` | Pause / mute / graphics quality (also `?q=low\|medium\|high`) |
 
 Targeting is automatic until you override it. Click or tap a beast, press `[`
@@ -198,7 +201,7 @@ quality manager and the `?q=` override are the mitigation.
 ## Testing
 
 `npm test` drives the real game in headless Chromium and asserts on live state —
-44 checks covering the impact pipeline, magnitude scaling, every beast type,
+48 checks covering the impact pipeline, magnitude scaling, every beast type,
 overcharge, landings, the adaptive music, both accessibility modes, both input
 modes, game over and restart, plus an end-to-end run to wave 7.
 

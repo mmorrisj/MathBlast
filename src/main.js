@@ -16,7 +16,7 @@ import { Starfield } from './render/starfield.js';
 import { Shield, CX } from './entities/shield.js';
 import { Projectile, Turret } from './entities/projectile.js';
 import { makeBeast, makeBoss, isBossWave, SplitBeast } from './entities/beasts/index.js';
-import { drawHud, drawTitle, drawGameOver, drawFocus, drawInterlude, choiceHitTest } from './ui/hud.js';
+import { drawHud, drawTitle, drawGameOver, drawFocus, drawInterlude, drawHelp, choiceHitTest } from './ui/hud.js';
 import { Quality } from './quality.js';
 
 const W = 1280;
@@ -45,6 +45,7 @@ class Game {
     this.time = 0;
     this.stateTime = 0;
     this.paused = false;
+    this.help = false;
     this.danger = 0;
     this.inputMode = 'type';
     this.choices = [];
@@ -108,6 +109,13 @@ class Game {
     window.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' || e.key === ' ' || e.key.startsWith('Arrow')) e.preventDefault();
 
+      // Instructions are reachable from anywhere, and swallow other keys while open.
+      if (e.key === 'h' || e.key === 'H') { this.help = !this.help; return; }
+      if (this.help) {
+        if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') this.help = false;
+        return;
+      }
+
       if (this.state === 'title') {
         if (e.key === 'Enter' || e.key === ' ') this._begin();
         else if (e.key === 'c' || e.key === 'C') setColorSafe(!theme.colorSafe);
@@ -165,6 +173,7 @@ class Game {
 
     const pointer = (ev) => {
       this.audio.resume();
+      if (this.help) { this.help = false; return; }
       if (this.state === 'title') { this._begin(); return; }
       if (this.state === 'gameover') { this._begin(); return; }
       const rect = this.display.getBoundingClientRect();
@@ -703,8 +712,14 @@ class Game {
         drawInterlude(this.out, this, W, H, 1 - this.phaseTimer / INTERLUDE);
       }
     }
-    if (this.state === 'title') drawTitle(this.out, W, H, this.time);
-    if (this.state === 'gameover') drawGameOver(this.out, this, W, H, this.stateTime);
+    // Instructions replace the title/game-over overlay rather than stacking on
+    // top of it -- a 94%-opaque scrim still lets big glowing text read through.
+    if (this.help) {
+      drawHelp(this.out, W, H);
+    } else {
+      if (this.state === 'title') drawTitle(this.out, W, H, this.time);
+      if (this.state === 'gameover') drawGameOver(this.out, this, W, H, this.stateTime);
+    }
     if (this.paused) {
       this.out.save();
       this.out.fillStyle = 'rgba(4,6,16,0.7)';
@@ -748,7 +763,7 @@ function frame(now) {
   const dt = Math.min(raw / 1000, 1 / 30);
   last = now;
   game.quality.sample(raw);
-  if (!game.paused) game.update(dt);
+  if (!game.paused && !game.help) game.update(dt);
   game.draw();
   requestAnimationFrame(frame);
 }
