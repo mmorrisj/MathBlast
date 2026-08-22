@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>MathBlast</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root { color-scheme: dark; }
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: #04060f;
+    overflow: hidden;
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  body {
+    display: grid;
+    place-items: center;
+    /* Faint field glow behind the letterbox bars. */
+    background:
+      radial-gradient(ellipse at 50% 120%, #12163a 0%, #04060f 60%),
+      #04060f;
+  }
+  #game {
+    display: block;
+    image-rendering: auto;
+    border-radius: 6px;
+    box-shadow: 0 0 90px rgba(60, 170, 255, 0.14), 0 0 0 1px rgba(120, 190, 255, 0.09);
+    touch-action: none;
+  }
+  #hint {
+    position: fixed;
+    bottom: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: rgba(150, 200, 235, 0.35);
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    pointer-events: none;
+    user-select: none;
+  }
+</style>
+</head>
+<body>
+  <canvas id="game" width="1280" height="720" aria-label="MathBlast game"></canvas>
+  <div id="hint">0-9 answer &nbsp;·&nbsp; ENTER fire &nbsp;·&nbsp; BACKSPACE undo &nbsp;·&nbsp; P pause &nbsp;·&nbsp; M mute</div>
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>

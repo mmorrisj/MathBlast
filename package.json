@@ -1,0 +1,10 @@
+{
+  "name": "mathblast",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Stop the descending beasts by solving math problems.",
+  "scripts": {
+    "start": "node serve.js"
+  }
+}
