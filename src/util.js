@@ -43,3 +43,33 @@ export function roundRect(ctx, x, y, w, h, r) {
 
 // hsl string helper keeps the palette readable at call sites.
 export const hsl = (h, s, l, a = 1) => `hsla(${h}, ${s}%, ${l}%, ${a})`;
+
+// Maps a problem's numeric magnitude onto the ~0.4..1.6 "power" scale that every
+// impact effect keys off: explosion radius, ring count, orb payout, hitstop,
+// shake and the pitch of the kill tone. Logarithmic, because 12x12 should feel
+// bigger than 2x3 without being thirty-six times bigger.
+export function power(magnitude) {
+  const m = Math.max(2, magnitude);
+  return clamp(0.32 + (Math.log2(m) - 1) / 4.2, 0.35, 1.65);
+}
+
+export function isPrime(n) {
+  if (n < 2) return false;
+  if (n % 2 === 0) return n === 2;
+  for (let i = 3; i * i <= n; i += 2) if (n % i === 0) return false;
+  return true;
+}
+
+// Proper divisors greater than 1 and less than n.
+export function properFactors(n) {
+  const out = [];
+  for (let i = 2; i * i <= n; i++) {
+    if (n % i === 0) {
+      out.push(i);
+      if (i !== n / i) out.push(n / i);
+    }
+  }
+  return out.sort((a, b) => a - b);
+}
+
+export const gcd = (a, b) => (b === 0 ? Math.abs(a) : gcd(b, a % b));

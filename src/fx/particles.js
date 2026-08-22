@@ -21,6 +21,7 @@ export class Particles {
     this.grav = new Float32Array(MAX);
     this.rot = new Float32Array(MAX);
     this.spin = new Float32Array(MAX);
+    this.stretch = new Float32Array(MAX);   // 0 = round, 1 = fully velocity-aligned
     this.glyph = new Array(MAX).fill(null);   // digit fragments, when present
   }
 
@@ -36,6 +37,7 @@ export class Particles {
     this.grav[i] = o.grav == null ? 0 : o.grav;
     this.rot[i] = o.rot || 0;
     this.spin[i] = o.spin || 0;
+    this.stretch[i] = o.stretch == null ? 0 : o.stretch;
     this.glyph[i] = o.glyph || null;
   }
 
@@ -60,6 +62,7 @@ export class Particles {
         glyph: opts.glyphs ? opts.glyphs[(Math.random() * opts.glyphs.length) | 0] : null,
         rot: rand(TAU),
         spin: rand(6, -6),
+        stretch: opts.stretch == null ? 0 : opts.stretch,
       });
     }
   }
@@ -71,7 +74,8 @@ export class Particles {
         const last = --this.n;
         if (i !== last) {
           for (const arr of [this.x, this.y, this.vx, this.vy, this.life, this.max,
-                             this.size, this.hue, this.drag, this.grav, this.rot, this.spin]) {
+                             this.size, this.hue, this.drag, this.grav, this.rot, this.spin,
+                             this.stretch]) {
             arr[i] = arr[last];
           }
           this.glyph[i] = this.glyph[last];
@@ -105,6 +109,16 @@ export class Particles {
         ctx.fillStyle = `hsla(${this.hue[i]}, 100%, ${58 + t * 30}%, ${a})`;
         ctx.fillText(this.glyph[i], 0, 0);
         ctx.restore();
+      } else if (this.stretch[i] > 0) {
+        // Smear along the velocity vector. Fast debris reads as speed rather
+        // than as confetti, and it costs one ellipse instead of one arc.
+        const vx = this.vx[i], vy = this.vy[i];
+        const sp = Math.hypot(vx, vy);
+        const len = 1 + Math.min(sp * 0.006, 5) * this.stretch[i];
+        ctx.fillStyle = `hsla(${this.hue[i]}, 100%, ${55 + t * 35}%, ${a})`;
+        ctx.beginPath();
+        ctx.ellipse(this.x[i], this.y[i], s * len, s, Math.atan2(vy, vx), 0, TAU);
+        ctx.fill();
       } else {
         ctx.fillStyle = `hsla(${this.hue[i]}, 100%, ${55 + t * 35}%, ${a})`;
         ctx.beginPath();
