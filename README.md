@@ -155,8 +155,9 @@ Fully synthesized — no audio assets, not even an impulse response.
   a stage: a melodic hook enters and thickens (0 → 6 → 9 → 12 notes a bar), hats
   double to sixteenths, the bassline adds offbeat stabs, the kick gains a
   pickup, and a sidechain pump deepens from nothing to 0.54. Tempo runs 100 →
-  136 BPM. Each wave arrives on a riser through the held silence and lands on a
-  drop.
+  136 BPM. Each wave arrives on a build that is locked to a bar line and schedules its own
+  drop, so the interlude runs for exactly as long as the music needs rather than
+  a fixed count that lands wherever it lands.
 - **Panned by screen position**, with a convolution reverb built from
   exponentially decaying noise, and a held breath — everything cuts, the tail
   carries — between waves.
@@ -269,7 +270,7 @@ quality manager and the `?q=` override are the mitigation.
 ## Testing
 
 `npm test` drives the real game in headless Chromium and asserts on live state —
-79 checks covering the impact pipeline, magnitude scaling, every beast type,
+81 checks covering the impact pipeline, magnitude scaling, every beast type,
 overcharge, landings, the adaptive music, both accessibility modes, both input
 modes, game over and restart, plus an end-to-end run to wave 7.
 
@@ -286,6 +287,10 @@ Two of them exist because of real failures the logic tests could not see:
 - The name field carried `maxlength="12"`, which truncated the *raw* string
   before whitespace was collapsed, so "  Ada  Lovelace" became "Ada Lovel".
   `cleanName` is now the only place that caps length.
+- The wave build used an exponential gain ramp — a factor of thousands, which
+  stays inaudible until the last tenth and then jumps, landing as a zip rather
+  than a rise. The suite now renders it in an `OfflineAudioContext` and asserts
+  the envelope climbs and that the loudest moment is the drop.
 
 The suite also opens a second, touch-enabled context at phone dimensions and
 drives the whole flow by tapping — profile creation, starting a run, answering,

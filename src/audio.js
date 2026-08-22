@@ -535,60 +535,91 @@ export class Audio {
     this.musicBus.gain.setTargetAtTime(1, t + 0.35, 0.5);
   }
 
-  // A rising sweep through the held silence, landing on the next wave. The
-  // build is what makes the speed increase read as an event rather than a
-  // number quietly going up.
-  riser(delay = 1.2, dur = 1.05) {
-    if (!this.ready) return;
-    const t = this.ctx.currentTime + delay;
+  // Time of the next bar line at least `minAhead` seconds out. The scheduler
+  // keeps counting steps through a held silence, so the grid survives it.
+  _nextBar(minAhead) {
+    const bar = this.stepDur * 16;
+    let t = this.nextStepTime + ((16 - (this.step % 16)) % 16) * this.stepDur;
+    const target = this.ctx.currentTime + minAhead;
+    while (t < target) t += bar;
+    return t;
+  }
 
+  // A build that lands exactly on a bar line, with the drop scheduled at the
+  // same instant. Returns seconds until that moment so the caller can hold the
+  // interlude open for precisely as long as the music needs.
+  //
+  // The gain ramps are linear on purpose. An exponential ramp from 0.0001 up is
+  // a factor of thousands, which stays inaudible until the last tenth and then
+  // jumps -- it reads as a zip rather than a rise.
+  buildUp(minSeconds = 1.6) {
+    if (!this.ready) return 0;
+    const now = this.ctx.currentTime;
+    const dropAt = this._nextBar(minSeconds);
+    const dur = dropAt - now;
+    if (dur <= 0.2) return 0;
+    const start = dropAt - Math.min(dur, this.spb * 4);
+
+    // Air: filtered noise opening up. Capped well below hiss.
     const noise = this.ctx.createBufferSource();
     noise.buffer = this.noiseBuf;
     noise.loop = true;
     const bp = this.ctx.createBiquadFilter();
     bp.type = 'bandpass';
-    bp.Q.value = 1.6;
-    bp.frequency.setValueAtTime(400, t);
-    bp.frequency.exponentialRampToValueAtTime(7000, t + dur);
+    bp.Q.value = 0.9;
+    bp.frequency.setValueAtTime(320, start);
+    bp.frequency.linearRampToValueAtTime(4200, dropAt);
     const ng = this.ctx.createGain();
-    ng.gain.setValueAtTime(0.0001, t);
-    ng.gain.exponentialRampToValueAtTime(0.26, t + dur * 0.92);
-    ng.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    ng.gain.setValueAtTime(0, start);
+    ng.gain.linearRampToValueAtTime(0.05, start + (dropAt - start) * 0.4);
+    ng.gain.linearRampToValueAtTime(0.2, dropAt - 0.02);
+    ng.gain.linearRampToValueAtTime(0, dropAt);
     noise.connect(bp); bp.connect(ng); ng.connect(this.sfxBus);
-    noise.start(t); noise.stop(t + dur + 0.05);
+    noise.start(start); noise.stop(dropAt + 0.02);
 
-    // A pitched sweep under it, so the build has a note as well as air.
+    // An accelerating snare roll is what actually says "here it comes".
+    // Spaced backwards from the downbeat so the last hit lands on it.
+    let gap = this.stepDur * 2;
+    for (let t = dropAt - gap; t > start; ) {
+      const level = 0.1 + 0.3 * (1 - (dropAt - t) / (dropAt - start));
+      this._noise(t, 0.075, this.sfxBus, level, 'highpass', 1500);
+      gap = Math.max(this.stepDur * 0.5, gap * 0.82);
+      t -= gap;
+    }
+
+    // A held tone underneath, rising a fifth rather than shrieking an octave.
     const o = this.ctx.createOscillator();
     o.type = 'sawtooth';
-    o.frequency.setValueAtTime(this._chordRoot(0), t);
-    o.frequency.exponentialRampToValueAtTime(this._chordRoot(0) * 8, t + dur);
-    const og = this.ctx.createGain();
-    og.gain.setValueAtTime(0.0001, t);
-    og.gain.exponentialRampToValueAtTime(0.13, t + dur * 0.9);
-    og.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    const root = this._chordRoot(0);
+    o.frequency.setValueAtTime(root, start);
+    o.frequency.linearRampToValueAtTime(root * 3, dropAt);
     const lp = this.ctx.createBiquadFilter();
     lp.type = 'lowpass';
-    lp.frequency.value = 3200;
+    lp.frequency.value = 1400;
+    const og = this.ctx.createGain();
+    og.gain.setValueAtTime(0, start);
+    og.gain.linearRampToValueAtTime(0.1, dropAt - 0.03);
+    og.gain.linearRampToValueAtTime(0, dropAt);
     o.connect(lp); lp.connect(og); og.connect(this.sfxBus);
-    o.start(t); o.stop(t + dur + 0.05);
+    o.start(start); o.stop(dropAt + 0.02);
+
+    this._dropAt(dropAt);
+    return dur;
   }
 
-  // The downbeat the riser was climbing to.
-  drop() {
-    if (!this.ready) return;
-    const t = this.ctx.currentTime;
+  // The downbeat the build was climbing to.
+  _dropAt(t) {
     this._kick(t, this.layerGain.drums);
-    this._noise(t, 0.5, this.sfxBus, 0.3, 'lowpass', 2600);
+    this._noise(t, 0.45, this.sfxBus, 0.26, 'lowpass', 2400);
     const o = this.ctx.createOscillator();
     o.type = 'sine';
-    o.frequency.setValueAtTime(180, t);
+    o.frequency.setValueAtTime(170, t);
     o.frequency.exponentialRampToValueAtTime(38, t + 0.5);
     const vg = this.ctx.createGain();
-    vg.gain.setValueAtTime(0.6, t);
+    vg.gain.setValueAtTime(0.55, t);
     vg.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
     o.connect(vg); vg.connect(this.sfxBus);
     o.start(t); o.stop(t + 0.65);
-    // Snap the pump wide open so the first bar lands hard.
     if (this.pump) {
       this.pump.gain.cancelScheduledValues(t);
       this.pump.gain.setValueAtTime(1, t);
