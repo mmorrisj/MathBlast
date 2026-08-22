@@ -59,9 +59,12 @@ async function main() {
     if (m.type() === 'error' && !/fonts\.g|ERR_CONNECTION/.test(m.text())) errs.push('console: ' + m.text());
   });
 
+  // Start from a clean store so the profile flow is exercised from scratch and
+  // the run is deterministic.
   await page.goto(`${BASE}/?q=high`, { waitUntil: 'load' });
-  await page.keyboard.press('Enter');
-  await page.waitForTimeout(600);
+  await page.evaluate(() => { try { localStorage.clear(); } catch { /* private mode */ } });
+  await page.reload({ waitUntil: 'load' });
+  await page.waitForTimeout(500);
 
   // --- helpers -----------------------------------------------------------
   const only = (expr) => page.evaluate(async (src) => {
@@ -79,6 +82,14 @@ async function main() {
     for (const ch of s) await page.keyboard.press(ch === '/' ? 'Slash' : ch);
     await page.keyboard.press('Enter');
   };
+  const nameIt = async (name) => {
+    await page.fill('#nameField', name);
+    await page.waitForTimeout(120);
+    await page.evaluate(() => document.getElementById('nameField')
+      .dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
+    await page.waitForTimeout(300);
+  };
+
   const blast = async () => {
     await page.waitForFunction(() => window.game.shockwaves.list.length > 0, null, { timeout: 3000 });
     return state(() => ({
@@ -87,6 +98,38 @@ async function main() {
       orbs: window.game.orbs.count,
     }));
   };
+
+  // --- profiles -------------------------------------------------------------
+  check('a first run asks who is playing',
+        (await state(() => window.game.state)) === 'profile');
+  await page.keyboard.press('Enter');            // + NEW PLAYER
+  await page.waitForTimeout(250);
+  check('choosing new player opens name entry', await state(() => window.game.naming));
+
+  await nameIt('  Ada  Lovelace!! ');
+  const made = await state(() => ({
+    state: window.game.state,
+    names: window.game.profiles.list.map((p) => p.name),
+    skillKey: window.game.skill.storeKey,
+  }));
+  check('a name is cleaned and the profile is created',
+        made.state === 'title' && made.names[0] === 'Ada Lovelace');
+  check('each profile gets its own fact history',
+        /mathblast\.skill\.v2\./.test(made.skillKey));
+
+  const dupe = await state(() => {
+    const before = window.game.profiles.list.length;
+    const r = window.game.profiles.create('ada lovelace');
+    return { rejected: r === null, same: window.game.profiles.list.length === before };
+  });
+  check('a duplicate name is refused', dupe.rejected && dupe.same);
+
+  const empties = await state(() =>
+    ['', '   ', '!!!', '\u0000'].every((n) => window.game.profiles.create(n) === null));
+  check('an empty or unprintable name is refused', empties);
+
+  await page.keyboard.press('Enter');            // begin the run
+  await page.waitForTimeout(600);
 
   // --- multiplication: impact pipeline -----------------------------------
   await only('new M.MultBeast(7, 8, 640, 240, 0)');
@@ -474,6 +517,53 @@ async function main() {
   await page.waitForTimeout(200);
   check('ESC closes the instructions', !(await state(() => window.game.help)));
 
+  // --- scores and profile records -------------------------------------------
+  const board = await state(() => {
+    const { Scores } = window.__scoresMod || {};
+    const s = window.game.scores;
+    s.list = [];
+    const place = [];
+    place.push(s.add({ name: 'A', score: 100, wave: 2, accuracy: 90, combo: 3 }));
+    place.push(s.add({ name: 'B', score: 300, wave: 4, accuracy: 95, combo: 9 }));
+    place.push(s.add({ name: 'C', score: 200, wave: 3, accuracy: 80, combo: 5 }));
+    const zero = s.add({ name: 'D', score: 0, wave: 1, accuracy: 0, combo: 0 });
+    for (let i = 0; i < 20; i++) s.add({ name: `X${i}`, score: 10 + i, wave: 1, accuracy: 50, combo: 1 });
+    return {
+      order: s.list.slice(0, 3).map((r) => r.name),
+      places: place, zero, capped: s.list.length, best: s.best,
+    };
+  });
+  check('the score table sorts by score and reports a placing',
+        JSON.stringify(board.order) === '["B","C","A"]' && board.places[1] === 1 && board.best === 300);
+  check('a zero score never takes a slot', board.zero === 0);
+  check('the score table is capped at ten', board.capped === 10);
+
+  const rec = await state(() => {
+    const g = window.game;
+    const p = g.profiles.active;
+    p.bestScore = 500; p.bestWave = 3; p.bestCombo = 4; p.games = 1;
+    const first = g.profiles.record({ score: 900, wave: 6, combo: 12, solved: 8, attempts: 10 });
+    const second = g.profiles.record({ score: 100, wave: 1, combo: 2, solved: 1, attempts: 4 });
+    return { first, second, best: p.bestScore, wave: p.bestWave, games: p.games };
+  });
+  check('a run updates personal bests only when it beats them',
+        rec.first.score && !rec.second.score && rec.best === 900 && rec.wave === 6 && rec.games === 3);
+
+  // Facts are stored per profile, so two players do not blur together.
+  const scoped = await state(() => {
+    const g = window.game;
+    const a = g.skill.storeKey;
+    g.skill.record(7, 8, 2.0, true);
+    const madeB = g.profiles.create('Second Player');
+    g.skill.useProfile(g.profiles.activeId);
+    const b = g.skill.storeKey;
+    const emptyForB = g.skill.facts.size;
+    g.skill.useProfile(a.split('.').pop());
+    return { differs: a !== b, emptyForB, madeB: Boolean(madeB) };
+  });
+  check('a new profile starts with an empty fact history',
+        scoped.differs && scoped.madeB && scoped.emptyForB === 0);
+
   // --- game over and restart ---------------------------------------------
   await page.evaluate(() => { window.game.cores = 1; });
   await only('new M.MultBeast(3, 3, 900, 300, 0)');
@@ -519,6 +609,100 @@ async function main() {
 
   check('no runtime errors anywhere in the suite', errs.length === 0);
   if (errs.length) console.log(errs.join('\n'));
+
+  // --- touchscreen -----------------------------------------------------------
+  // A separate context, because touch support is decided by the pointer media
+  // query at load and cannot be turned on inside an existing page.
+  const mErrs = [];
+  const openPhone = async (w, h) => {
+    const c = await browser.newContext({
+      viewport: { width: w, height: h }, hasTouch: true, isMobile: true, deviceScaleFactor: 2,
+    });
+    const pg = await c.newPage();
+    pg.on('pageerror', (e) => mErrs.push(e.message));
+    await pg.goto(`${BASE}/?q=medium`, { waitUntil: 'load' });
+    await pg.evaluate(() => { try { localStorage.clear(); } catch { /* private mode */ } });
+    await pg.reload({ waitUntil: 'load' });
+    await pg.waitForTimeout(450);
+    return { c, pg };
+  };
+
+  const up = await openPhone(390, 844);
+  const portrait = await up.pg.evaluate(() => ({
+    coarse: matchMedia('(pointer: coarse)').matches,
+    touch: window.game.touch,
+    portrait: window.game.portrait,
+    mode: window.game.inputMode,
+  }));
+  check('an upright phone is detected and asked to rotate',
+        portrait.coarse && portrait.touch && portrait.portrait);
+  check('touch defaults to the pick-an-answer layout', portrait.mode === 'choose');
+  await up.c.close();
+
+  const side = await openPhone(844, 390);
+  const pg = side.pg;
+  const canvas = await pg.$('#game');
+  const box = await canvas.boundingBox();
+  const tap = async (vx, vy) => {
+    await pg.touchscreen.tap(box.x + (vx / 1280) * box.width, box.y + (vy / 720) * box.height);
+    await pg.waitForTimeout(280);
+  };
+
+  check('landscape clears the rotate prompt',
+        !(await pg.evaluate(() => window.game.portrait)));
+
+  // Answer targets have to clear the ~44px physical minimum once scaled down.
+  const targets = await pg.evaluate(() => {
+    const scale = document.getElementById('game').getBoundingClientRect().height / 720;
+    const btn = 74 * scale;
+    return { btn, scale };
+  });
+  check('on-screen buttons stay thumb-sized after scaling', targets.btn >= 38);
+
+  await tap(640, 235);                                  // + NEW PLAYER
+  check('tapping opens name entry', await pg.evaluate(() => window.game.naming));
+  await pg.fill('#nameField', 'Sam');
+  await pg.waitForTimeout(150);
+  await tap(640, 414);                                  // START
+  check('a profile can be created entirely by touch',
+        (await pg.evaluate(() => window.game.profiles.active?.name)) === 'Sam');
+
+  await tap(640, 360);                                  // begin
+  await pg.waitForTimeout(2600);
+  const inPlay = await pg.evaluate(() => ({
+    state: window.game.state, choices: window.game.choices.length,
+  }));
+  check('a run starts from a tap with four answers offered',
+        inPlay.state === 'playing' && inPlay.choices === 4);
+
+  const pick = await pg.evaluate(() => {
+    const g = window.game;
+    return { i: g.choices.findIndex((c) => g.targetBeast && g.targetBeast.accepts(c)), solved: g.solved };
+  });
+  if (pick.i >= 0) {
+    const gap = 14, w = 168, total = 4 * w + 3 * gap;
+    await tap(640 - total / 2 + pick.i * (w + gap) + w / 2, 644);
+  }
+  check('tapping an answer fires it',
+        (await pg.evaluate(() => window.game.solved)) > pick.solved);
+
+  await pg.evaluate(() => { window.game.overcharge = 1; window.game.chargeReady = true; });
+  await tap(18 + 55, 720 - 18 - 37);
+  // Not "=== 0": firing clears chargeReady, so a projectile still in flight
+  // resolving afterwards legitimately starts recharging from zero.
+  const beamed = await pg.evaluate(() => ({
+    charge: window.game.overcharge, fired: Boolean(window.game.beamFx),
+  }));
+  check('the on-screen beam button discharges overcharge and fires',
+        beamed.charge < 1 && beamed.fired);
+
+  await tap(1280 - 18 - 37, 720 - 18 - 37);
+  check('the on-screen help button opens the instructions',
+        await pg.evaluate(() => window.game.help));
+
+  check('no runtime errors on the phone', mErrs.length === 0);
+  if (mErrs.length) console.log(mErrs.join('\n'));
+  await side.c.close();
 
   await browser.close();
   stop();

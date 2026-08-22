@@ -7,6 +7,7 @@ import { clamp, damp, rand, randInt, power } from './util.js';
 import { theme, setThemeWave, setColorSafe, setReducedMotion } from './theme.js';
 import { Audio } from './audio.js';
 import { SkillTable, makeChoices } from './problems.js';
+import { Profiles, Scores, cleanName, MAX_NAME } from './profiles.js';
 import { Camera } from './fx/camera.js';
 import { Particles } from './fx/particles.js';
 import { Shockwaves } from './fx/shockwave.js';
@@ -16,8 +17,10 @@ import { Starfield } from './render/starfield.js';
 import { Shield, CX } from './entities/shield.js';
 import { Projectile, Turret } from './entities/projectile.js';
 import { makeBeast, makeBoss, isBossWave, SplitBeast } from './entities/beasts/index.js';
-import { drawHud, drawTitle, drawGameOver, drawFocus, drawInterlude, drawHelp, choiceHitTest } from './ui/hud.js';
+import { drawHud, drawTitle, drawGameOver, drawFocus, drawInterlude, drawHelp, choiceHitTest, setChoiceLayout } from './ui/hud.js';
 import { Quality } from './quality.js';
+import { touchButtons, touchHitTest, drawTouchButtons, drawRotate } from './ui/touch.js';
+import { drawProfiles, profileHitTest, nameButton, drawScores, MAX_ROWS } from './ui/profile.js';
 
 const W = 1280;
 const H = 720;
@@ -38,10 +41,25 @@ class Game {
     this.orbs = new Orbs();
     this.camera = new Camera();
     this.audio = new Audio();
-    this.skill = new SkillTable();
+    this.profiles = new Profiles();
+    this.scores = new Scores();
+    this.skill = new SkillTable(this.profiles.activeId);
     this.quality = new Quality(new URLSearchParams(location.search).get('q'));
 
-    this.state = 'title';
+    // Coarse pointer means no keyboard: pick-an-answer layout, on-screen
+    // buttons, and a landscape prompt when the phone is upright.
+    this.touch = Boolean(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+    setChoiceLayout(this.touch);
+    this.portrait = false;
+    this.profileIndex = 0;
+    this.naming = false;
+    this.nameDraft = '';
+    this.nameError = '';
+    this.lastRun = null;
+
+    // First visit asks who is playing; after that it goes straight in with the
+    // last player, who is named on the title screen with ESC to switch.
+    this.state = this.profiles.isEmpty ? 'profile' : 'title';
     this.time = 0;
     this.stateTime = 0;
     this.paused = false;
@@ -56,7 +74,9 @@ class Game {
     if (mq && mq.addEventListener) mq.addEventListener('change', (e) => setReducedMotion(e.matches));
 
     this.reset();
+    if (this.touch) this._setInputMode('choose');
     this._bindInput();
+    this._bindNameField();
     this._fit();
     window.addEventListener('resize', () => this._fit());
     document.addEventListener('visibilitychange', () => { if (document.hidden) this.paused = true; });
@@ -109,6 +129,24 @@ class Game {
     window.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' || e.key === ' ' || e.key.startsWith('Arrow')) e.preventDefault();
 
+      // Name entry owns the keyboard while it is open (the DOM field handles it).
+      if (this.naming) return;
+
+      if (this.state === 'profile') {
+        const shown = Math.min(this.profiles.list.length, MAX_ROWS);
+        if (e.key === 'ArrowUp') this.profileIndex = (this.profileIndex + shown) % (shown + 1);
+        else if (e.key === 'ArrowDown') this.profileIndex = (this.profileIndex + 1) % (shown + 1);
+        else if (e.key === 'Enter' || e.key === ' ') this._chooseProfile(this.profileIndex);
+        else if (e.key === 'Delete' || e.key === 'Backspace') {
+          const p = this.profiles.list[this.profileIndex];
+          if (p) {
+            this.profiles.remove(p.id);
+            this.profileIndex = Math.max(0, Math.min(this.profileIndex, this.profiles.list.length));
+          }
+        } else if (e.key === 'h' || e.key === 'H') this.help = !this.help;
+        return;
+      }
+
       // Instructions are reachable from anywhere, and swallow other keys while open.
       if (e.key === 'h' || e.key === 'H') { this.help = !this.help; return; }
       if (this.help) {
@@ -120,10 +158,12 @@ class Game {
         if (e.key === 'Enter' || e.key === ' ') this._begin();
         else if (e.key === 'c' || e.key === 'C') setColorSafe(!theme.colorSafe);
         else if (e.key === 'r' || e.key === 'R') setReducedMotion(!theme.reducedMotion);
+        else if (e.key === 'Escape') { this.state = 'profile'; this.stateTime = 0; }
         return;
       }
       if (this.state === 'gameover') {
         if (e.key === 'Enter') this._begin();
+        else if (e.key === 'Escape') { this.state = 'profile'; this.stateTime = 0; }
         return;
       }
 
@@ -173,12 +213,36 @@ class Game {
 
     const pointer = (ev) => {
       this.audio.resume();
-      if (this.help) { this.help = false; return; }
-      if (this.state === 'title') { this._begin(); return; }
-      if (this.state === 'gameover') { this._begin(); return; }
       const rect = this.display.getBoundingClientRect();
       const px = ((ev.clientX - rect.left) / rect.width) * W;
       const py = ((ev.clientY - rect.top) / rect.height) * H;
+
+      if (this.help) { this.help = false; return; }
+
+      // On-screen buttons sit above everything else.
+      const btn = touchHitTest(px, py, touchButtons(this, W, H));
+      if (btn) {
+        if (btn === 'help') this.help = true;
+        else if (btn === 'pause') this.paused = !this.paused;
+        else if (btn === 'beam') this._fireBeam();
+        return;
+      }
+
+      if (this.state === 'profile') {
+        if (this.naming) {
+          const b = nameButton(W, H);
+          if (px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h) this._confirmName();
+          else if (this.nameField) this.nameField.focus();
+          return;
+        }
+        const hit = profileHitTest(px, py, this.profiles.list.length, W);
+        if (hit !== null) this._chooseProfile(hit);
+        return;
+      }
+      if (this.state === 'title') { this._begin(); return; }
+      if (this.state === 'gameover') { this._begin(); return; }
+      if (this.paused) { this.paused = false; return; }
+
       if (this.inputMode === 'choose') {
         const hit = choiceHitTest(px, py, this.choices);
         if (hit >= 0) { this.choiceIndex = hit; this._fire(this.choices[hit]); return; }
@@ -188,8 +252,76 @@ class Game {
     };
     window.addEventListener('pointerdown', pointer);
     // Touch implies no keyboard: switch to the pick-an-answer layout.
-    window.addEventListener('touchstart', () => this._setInputMode('choose'), { passive: true });
+    window.addEventListener('touchstart', () => {
+      this.touch = true;
+      setChoiceLayout(true);
+      this._fit();
+      this._setInputMode('choose');
+    }, { passive: true });
     window.addEventListener('gamepadconnected', () => this._setInputMode('choose'));
+  }
+
+  // A hidden DOM input carries name entry, so phones get the native keyboard
+  // instead of a letter grid nobody wants to thumb through.
+  _bindNameField() {
+    const el = document.getElementById('nameField');
+    if (!el) return;
+    this.nameField = el;
+    el.addEventListener('input', () => {
+      this.nameDraft = cleanName(el.value);
+      if (el.value !== this.nameDraft) el.value = this.nameDraft;
+      this.nameError = '';
+    });
+    el.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') this._confirmName();
+      else if (e.key === 'Escape') this._stopNaming();
+    });
+  }
+
+  _startNaming() {
+    this.naming = true;
+    this.nameDraft = '';
+    this.nameError = '';
+    if (this.nameField) {
+      this.nameField.value = '';
+      this.nameField.style.display = 'block';
+      this.nameField.focus();
+    }
+  }
+
+  _stopNaming() {
+    this.naming = false;
+    this.nameError = '';
+    if (this.nameField) {
+      this.nameField.blur();
+      this.nameField.style.display = 'none';
+    }
+  }
+
+  _confirmName() {
+    const name = cleanName(this.nameDraft);
+    if (!name) { this.nameError = 'Please enter a name'; return; }
+    const made = this.profiles.create(name);
+    if (!made) { this.nameError = 'That name is already taken'; return; }
+    this._stopNaming();
+    this.skill.useProfile(this.profiles.activeId);
+    this.profileIndex = this.profiles.list.findIndex((p) => p.id === made.id);
+    this.state = 'title';
+    this.stateTime = 0;
+  }
+
+  _chooseProfile(i) {
+    const shown = Math.min(this.profiles.list.length, MAX_ROWS);
+    if (i === 'new' || i === shown) { this._startNaming(); return; }
+    const p = this.profiles.list[i];
+    if (!p) return;
+    this.profiles.select(p.id);
+    this.skill.useProfile(p.id);
+    this.profileIndex = i;
+    this.state = 'title';
+    this.stateTime = 0;
+    this.audio.start();
   }
 
   _begin() {
@@ -531,11 +663,26 @@ class Game {
         hue: 20, speed: 500 + pw * 260, life: 1.4, size: 6, grav: 260, stretch: 1.2,
       });
       if (this.cores <= 0) {
-        this.state = 'gameover';
-        this.stateTime = 0;
-        this.audio.gameOver();
+        this._endRun();
       }
     }
+  }
+
+  // Fold the finished run into the player's profile and the score table.
+  _endRun() {
+    this.state = 'gameover';
+    this.stateTime = 0;
+    this.audio.gameOver();
+    const name = this.profiles.active ? this.profiles.active.name : 'PLAYER';
+    const accuracy = this.attempts ? Math.round((this.solved / this.attempts) * 100) : 100;
+    const beat = this.profiles.record({
+      score: this.score, wave: this.wave, combo: this.bestCombo,
+      solved: this.solved, attempts: this.attempts,
+    });
+    const place = this.scores.add({
+      name, score: this.score, wave: this.wave, accuracy, combo: this.bestCombo,
+    });
+    this.lastRun = { place, beat, name, accuracy };
   }
 
   // --- update ------------------------------------------------------------
@@ -551,6 +698,11 @@ class Game {
     if (this.beamFx) {
       this.beamFx.t += dtReal;
       if (this.beamFx.t > 0.55) this.beamFx = null;
+    }
+
+    if (this.state === 'profile') {
+      this.stars.update(dt);
+      return;
     }
 
     if (this.state !== 'playing') {
@@ -698,6 +850,7 @@ class Game {
     ctx.restore();
 
     if (this.state === 'playing') drawHud(ctx, this, W, H);
+    if (this.touch && !this.portrait) drawTouchButtons(ctx, touchButtons(this, W, H), this.time);
 
     this.post.apply(this.out, {
       bloom: q.bloom ? 0.85 + this.danger * 0.3 : 0,
@@ -716,10 +869,15 @@ class Game {
     // top of it -- a 94%-opaque scrim still lets big glowing text read through.
     if (this.help) {
       drawHelp(this.out, W, H);
+    } else if (this.state === 'profile') {
+      drawProfiles(this.out, this, W, H, this.time);
     } else {
-      if (this.state === 'title') drawTitle(this.out, W, H, this.time);
+      if (this.state === 'title') drawTitle(this.out, W, H, this.time, this);
       if (this.state === 'gameover') drawGameOver(this.out, this, W, H, this.stateTime);
     }
+
+    // Overrides everything: there is nothing useful to show sideways.
+    if (this.portrait) drawRotate(this.out, W, H, this.time);
     if (this.paused) {
       this.out.save();
       this.out.fillStyle = 'rgba(4,6,16,0.7)';
@@ -749,9 +907,18 @@ class Game {
   }
 
   _fit() {
-    const scale = Math.min(window.innerWidth / W, window.innerHeight / H);
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    // A 16:9 playfield on an upright phone is too small to read, so ask for
+    // landscape rather than rendering something unplayable.
+    this.portrait = this.touch && vh > vw;
+    const scale = Math.min(vw / W, vh / H);
     this.display.style.width = `${Math.floor(W * scale)}px`;
     this.display.style.height = `${Math.floor(H * scale)}px`;
+    if (this.nameField) {
+      // Keep the invisible field over the canvas so focus behaves.
+      this.nameField.style.width = `${Math.floor(W * scale * 0.36)}px`;
+    }
   }
 }
 

@@ -15,6 +15,32 @@ and `8`. A prime glows red and refuses to split, so the only way to kill it is t
 name it. Nobody is told what a prime is — the rock teaches it by being
 unbreakable.
 
+## Players and scores
+
+First launch asks who is playing. A profile owns its own fact history, so two
+people sharing a device get their own adaptive difficulty rather than averaging
+into one blurred learner — and its own personal bests. The score table is global
+across profiles, because a shared leaderboard is the point of having names.
+
+Everything lives in `localStorage`; a run that beats a record says so on the
+game-over screen, and the top four sit under the title.
+
+![Choosing a player](docs/profiles.png)
+
+## On a phone
+
+Touch is detected from the pointer media query, which switches the game to the
+pick-an-answer layout, enlarges the answer targets past the ~44px physical
+minimum once 1280×720 is scaled to a phone, and puts a beam, pause and help
+button in the bottom corners where thumbs already rest. Tap a beast to aim at
+it. An upright phone gets a rotate prompt — a 16:9 playfield in portrait is too
+small to read.
+
+Name entry hands off to a real `<input>` laid over the canvas, so phones raise
+the native keyboard instead of a letter grid nobody wants to thumb through.
+
+![On a phone](docs/mobile.png)
+
 ## Running it
 
 No build step and no dependencies.
@@ -39,6 +65,7 @@ Any static server works. It must be served over HTTP rather than opened as a
 | `Space` | Overcharge beam, once charged |
 | `Tab` | Switch between typing and picking from four answers |
 | `C` / `R` | Colour-safe palette / reduced motion |
+| `ESC` | Switch player (from the title) |
 | `H` | How to play — every control and beast in one screen, from the title or mid-game |
 | `P` / `M` / `Q` | Pause / mute / graphics quality (also `?q=low\|medium\|high`) |
 
@@ -201,7 +228,7 @@ quality manager and the `?q=` override are the mitigation.
 ## Testing
 
 `npm test` drives the real game in headless Chromium and asserts on live state —
-48 checks covering the impact pipeline, magnitude scaling, every beast type,
+70 checks covering the impact pipeline, magnitude scaling, every beast type,
 overcharge, landings, the adaptive music, both accessibility modes, both input
 modes, game over and restart, plus an end-to-end run to wave 7.
 
@@ -215,3 +242,11 @@ Two of them exist because of real failures the logic tests could not see:
   only four cells per beast were ever drawn. The suite now samples the canvas
   and counts lit cells, which is the only way to catch a rendering bug of that
   shape.
+- The name field carried `maxlength="12"`, which truncated the *raw* string
+  before whitespace was collapsed, so "  Ada  Lovelace" became "Ada Lovel".
+  `cleanName` is now the only place that caps length.
+
+The suite also opens a second, touch-enabled context at phone dimensions and
+drives the whole flow by tapping — profile creation, starting a run, answering,
+the beam and help buttons — because none of that is reachable from the desktop
+page.
