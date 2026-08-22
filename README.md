@@ -152,12 +152,21 @@ Fully synthesized — no audio assets, not even an impulse response.
 - **Five stems fade in with proximity**, making the mix double as a threat meter:
   silence at the top of the screen, drums by the time something is about to land.
 - **The arrangement escalates by sector.** Every three waves the track moves up
-  a stage: a melodic hook enters and thickens (0 → 6 → 9 → 12 notes a bar), hats
-  double to sixteenths, the bassline adds offbeat stabs, the kick gains a
-  pickup, and a sidechain pump deepens from nothing to 0.54. Tempo runs 100 →
-  136 BPM. Each wave arrives on a build that is locked to a bar line and schedules its own
-  drop, so the interlude runs for exactly as long as the music needs rather than
-  a fixed count that lands wherever it lands.
+  a stage: a melodic hook enters and thickens (0 → 6 → 9 → 12 notes a bar), the
+  bassline adds offbeat stabs, and a sidechain pump deepens from nothing to
+  0.54. Tempo runs 100 → 136 BPM. Each wave arrives on a build that is locked to
+  a bar line and schedules its own drop, so the interlude runs for exactly as
+  long as the music needs rather than a fixed count that lands wherever it
+  lands.
+- **The kit plays phrases, not a loop.** Each sector has its own sixteen-step
+  pattern written as velocity strings, running 8 → 15 → 27 → 33 onsets a bar as
+  the kick syncopates and ghost snares fill the gaps. Every four bars close on a
+  tom fill and the next opens on a crash, velocities wobble a few percent, and
+  the hats drift by under a millisecond — a grid-locked hat line rings like one
+  long tone rather than a series of hits. Only accented kicks drive the
+  sidechain; a ghost kick pumping the mix sounds like a fault, not a groove.
+  The drums also arrive earlier every sector (danger 0.62 → 0.11), so by
+  CRIMSON DEEP the kit is simply always there.
 - **Panned by screen position**, with a convolution reverb built from
   exponentially decaying noise, and a held breath — everything cuts, the tail
   carries — between waves.
@@ -291,6 +300,20 @@ Two of them exist because of real failures the logic tests could not see:
   stays inaudible until the last tenth and then jumps, landing as a zip rather
   than a rise. The suite now renders it in an `OfflineAudioContext` and asserts
   the envelope climbs and that the loudest moment is the drop.
+- "The drum sounds dumb" turned out not to be a timbre problem. Measuring each
+  voice through a filter bank in an `OfflineAudioContext` showed every band it
+  needed — the kick's beater click peaks at 0.31 above 7 kHz, the snare spreads
+  across 250 Hz to 9 kHz. What was wrong was the pattern: kick on 1 and 3, snare
+  on 2 and 4, straight hats, byte-identical every bar for the entire game. That
+  is a metronome. The fix was a pattern engine with per-sector kits, velocity,
+  fills and phrase structure. (The first version of that filter bank measured
+  every voice as a flat 0.16 across all six bands, which is the shape of a
+  broken instrument: `start()` leaves its sequencer running, so a full track was
+  playing underneath each "single voice" render. A control tone through the same
+  bank is what caught it.)
+- The kit was gated on `danger > 0.62` in every sector, so most of a run had no
+  percussion at all. The suite now probes the real gate by recording what
+  `setDanger` asks the drum layer for, rather than restating the formula.
 
 The suite also opens a second, touch-enabled context at phone dimensions and
 drives the whole flow by tapping — profile creation, starting a run, answering,
