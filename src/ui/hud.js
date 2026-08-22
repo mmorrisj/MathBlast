@@ -167,6 +167,17 @@ export function drawHud(ctx, g, W, H) {
   ctx.fill();
   ctx.restore();
 
+  // Targeting mode readout: switching target is the least discoverable control
+  // in the game, so it gets a permanent line rather than a tooltip.
+  const manual = g.manualTargetId != null;
+  ctx.textAlign = 'center';
+  ctx.font = `500 12px ${MONO}`;
+  ctx.fillStyle = manual ? 'rgba(255,226,150,0.85)' : 'rgba(150,200,235,0.45)';
+  ctx.fillText(
+    manual ? 'TARGET LOCKED — [ ] or click to switch' : 'AUTO-TARGET — [ ] or click to choose',
+    W / 2, ENTRY_Y - 44,
+  );
+
   drawEntry(ctx, g, W, H);
   ctx.restore();
 }
@@ -272,6 +283,17 @@ export function drawFocus(ctx, g, W, H, amount, camera) {
     ctx.fillText(t.promptText, t.x, t.y - t.h / 2 - 14);
     ctx.restore();
   }
+  // Targeting mode readout: switching target is the least discoverable control
+  // in the game, so it gets a permanent line rather than a tooltip.
+  const manual = g.manualTargetId != null;
+  ctx.textAlign = 'center';
+  ctx.font = `500 12px ${MONO}`;
+  ctx.fillStyle = manual ? 'rgba(255,226,150,0.85)' : 'rgba(150,200,235,0.45)';
+  ctx.fillText(
+    manual ? 'TARGET LOCKED — [ ] or click to switch' : 'AUTO-TARGET — [ ] or click to choose',
+    W / 2, ENTRY_Y - 44,
+  );
+
   drawEntry(ctx, g, W, H);
   ctx.restore();
 }
@@ -330,6 +352,7 @@ export function drawTitle(ctx, W, H, t) {
 
   const lines = [
     'TYPE the answer  ·  ENTER fire  ·  SPACE overcharge beam',
+    'Click a beast, or press [ and ], to choose which one to solve.',
     'Tap or use a gamepad to pick from four answers instead.',
     '',
     'Grids ask for the product.  Boulders ask for any factor —',

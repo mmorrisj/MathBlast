@@ -33,10 +33,15 @@ Any static server works. It must be served over HTTP rather than opened as a
 | --- | --- |
 | `0`–`9`, `/` | Type the answer (`/` for fractions, e.g. `3/4`) |
 | `Enter` | Fire &nbsp;·&nbsp; `Backspace` delete &nbsp;·&nbsp; `Esc` clear |
+| `[` `]` or click | Choose which beast to solve; otherwise the turret auto-targets the most dangerous one |
 | `Space` | Overcharge beam, once charged |
 | `Tab` | Switch between typing and picking from four answers |
 | `C` / `R` | Colour-safe palette / reduced motion |
 | `P` / `M` / `Q` | Pause / mute / graphics quality (also `?q=low\|medium\|high`) |
+
+Targeting is automatic until you override it. Click or tap a beast, press `[`
+and `]`, or use the gamepad shoulder buttons to aim somewhere else; the lock
+holds until that beast is solved, then the turret resumes defending on its own.
 
 Touch and gamepad auto-switch to the four-answer layout: tap an orb, or use
 d-pad + A, with B or RT for the beam.
@@ -193,12 +198,17 @@ quality manager and the `?q=` override are the mitigation.
 ## Testing
 
 `npm test` drives the real game in headless Chromium and asserts on live state —
-31 checks covering the impact pipeline, magnitude scaling, every beast type,
+38 checks covering the impact pipeline, magnitude scaling, every beast type,
 overcharge, landings, the adaptive music, both accessibility modes, both input
 modes, game over and restart, plus an end-to-end run to wave 7.
 
-One of them exists because of a real playtest failure: boulders originally
-rendered a bare `48` with no question anywhere near them, and the only
-instruction was HUD text shown for the targeted beast alone. Every beast now
-states its own task above it, and the suite asserts that none of them render as
-just a number.
+Two of them exist because of real failures the logic tests could not see:
+
+- Boulders originally rendered a bare `48` with no question anywhere near them,
+  and the only instruction was HUD text shown for the targeted beast alone. The
+  suite now asserts that no beast renders its prompt as just a number.
+- Batching lattice cells into four fills for performance used a `roundRect`
+  helper that called `beginPath()`, so each cell discarded the previous one and
+  only four cells per beast were ever drawn. The suite now samples the canvas
+  and counts lit cells, which is the only way to catch a rendering bug of that
+  shape.

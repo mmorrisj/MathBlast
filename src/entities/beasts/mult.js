@@ -3,7 +3,7 @@
 // through the grid, making the kill animation a picture of the array being
 // consumed.
 
-import { TAU, rand, clamp, roundRect, easeOutCubic } from '../../util.js';
+import { TAU, rand, clamp, roundRect, addRoundRect, easeOutCubic } from '../../util.js';
 import { Beast } from './base.js';
 
 const CELL = 12;
@@ -105,7 +105,7 @@ export class MultBeast extends Beast {
         : `hsla(${this.hue + shimmer * 14}, 100%, ${52 + shimmer * 22}%, ${0.85 * shimmer + 0.15})`;
       ctx.beginPath();
       for (let k = 0; k < cells.length; k += 2) {
-        roundRect(ctx, cells[k], cells[k + 1], CELL, CELL, 2.5);
+        addRoundRect(ctx, cells[k], cells[k + 1], CELL, CELL, 2.5);
       }
       ctx.fill();
     }

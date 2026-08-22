@@ -91,6 +91,7 @@ class Game {
     this.spawnTimer = 0;
     this.waveRemaining = 0;
     this.targetBeast = null;
+    this.manualTargetId = null;    // set when the player picks a beast themselves
     this.choices = [];
 
     setColorSafe(theme.colorSafe);
@@ -128,12 +129,22 @@ class Game {
 
       if (e.key === ' ') { this._fireBeam(); return; }
 
+      // [ and ] switch target in either mode; the arrows do it too when they
+      // are not already busy picking an answer.
+      if (e.key === '[') { this._cycleTarget(-1); return; }
+      if (e.key === ']') { this._cycleTarget(1); return; }
+      if (e.key === 'ArrowUp') { this._cycleTarget(-1); return; }
+      if (e.key === 'ArrowDown') { this._cycleTarget(1); return; }
+
       if (this.inputMode === 'choose') {
         if (e.key === 'ArrowLeft') this.choiceIndex = (this.choiceIndex + 3) % 4;
         else if (e.key === 'ArrowRight') this.choiceIndex = (this.choiceIndex + 1) % 4;
         else if (e.key === 'Enter') this._fire(this.choices[this.choiceIndex]);
         return;
       }
+
+      if (e.key === 'ArrowLeft') { this._cycleTarget(-1); return; }
+      if (e.key === 'ArrowRight') { this._cycleTarget(1); return; }
 
       if ((e.key >= '0' && e.key <= '9') || e.key === '/') {
         if (this.input.length < 5) { this.input += e.key; this.inputPulse = 1; }
@@ -155,8 +166,10 @@ class Game {
       const py = ((ev.clientY - rect.top) / rect.height) * H;
       if (this.inputMode === 'choose') {
         const hit = choiceHitTest(px, py, this.choices);
-        if (hit >= 0) { this.choiceIndex = hit; this._fire(this.choices[hit]); }
+        if (hit >= 0) { this.choiceIndex = hit; this._fire(this.choices[hit]); return; }
       }
+      // Anywhere else on the field: take aim at whatever was clicked.
+      this._pickTargetAt(px, py);
     };
     window.addEventListener('pointerdown', pointer);
     // Touch implies no keyboard: switch to the pick-an-answer layout.
@@ -184,8 +197,8 @@ class Game {
     const hint = document.getElementById('hint');
     if (hint) {
       hint.textContent = mode === 'choose'
-        ? 'TAP or ◀ ▶ to pick  ·  ENTER fire  ·  SPACE overcharge  ·  TAB type instead'
-        : '0-9 and / answer  ·  ENTER fire  ·  SPACE overcharge  ·  TAB pick instead  ·  P pause  ·  M mute';
+        ? 'TAP or ◀ ▶ pick answer  ·  [ ] or click switch target  ·  ENTER fire  ·  SPACE overcharge  ·  TAB type'
+        : '0-9 and / answer  ·  ENTER fire  ·  [ ] or click switch target  ·  SPACE overcharge  ·  TAB pick  ·  P pause';
     }
   }
 
@@ -206,6 +219,13 @@ class Game {
       const right = gp.buttons[15]?.pressed || ax > 0.6;
       const fire = gp.buttons[0]?.pressed;
       const beam = gp.buttons[1]?.pressed || gp.buttons[7]?.pressed;
+      const prev = gp.buttons[4]?.pressed;
+      const next = gp.buttons[5]?.pressed;
+      if (this.state === 'playing') {
+        if (prev && !this._gpPrev) this._cycleTarget(-1);
+        if (next && !this._gpNext) this._cycleTarget(1);
+      }
+      this._gpPrev = prev; this._gpNext = next;
       if (this.state !== 'playing') {
         if (fire && !this._gpFire) this._begin();
       } else if (this.inputMode === 'choose') {
@@ -217,6 +237,41 @@ class Game {
       this._gpLeft = left; this._gpRight = right; this._gpFire = fire; this._gpBeam = beam;
       return;
     }
+  }
+
+  // Step through the beasts left-to-right on screen.
+  _cycleTarget(dir) {
+    const list = this.beasts
+      .filter((b) => b.alive && !b.locked)
+      .sort((a, b) => a.x - b.x);
+    if (list.length < 2) return;
+    const i = list.indexOf(this.targetBeast);
+    const next = list[((i < 0 ? 0 : i + dir) % list.length + list.length) % list.length];
+    this._selectTarget(next);
+  }
+
+  // Click or tap a beast to take aim at it.
+  _pickTargetAt(px, py) {
+    const p = this.camera.screenToWorld(px, py, W, H);
+    let best = null, bd = Infinity;
+    for (const b of this.beasts) {
+      if (!b.alive || b.locked) continue;
+      const reach = Math.max(b.w, b.h) / 2 + 34;
+      const d = Math.hypot(b.x - p.x, b.y - p.y);
+      if (d < reach && d < bd) { bd = d; best = b; }
+    }
+    if (best) { this._selectTarget(best); return true; }
+    return false;
+  }
+
+  _selectTarget(b) {
+    if (!b || b === this.targetBeast) return;
+    this.manualTargetId = b.id;
+    this.targetBeast = b;
+    this.input = '';
+    this.inputPulse = 1;
+    this._refreshChoices();
+    this.audio.fire(b.x);
   }
 
   _fire(raw) {
@@ -521,12 +576,23 @@ class Game {
     }
     this.beasts = this.beasts.filter((b) => !b.gone);
 
+    // A beast the player picked themselves holds the turret until it dies or is
+    // fired at; otherwise the turret falls back to whatever is most dangerous.
     let target = null;
-    for (const b of this.beasts) {
-      if (!b.alive || b.locked) continue;
-      // Bosses always take priority; otherwise the closest to doing damage.
-      const score = (b.isBoss ? 1000 : 0) + b.progress(this.shield);
-      if (!target || score > target._score) { target = b; target._score = score; }
+    if (this.manualTargetId != null) {
+      const held = this.beasts.find(
+        (b) => b.id === this.manualTargetId && b.alive && !b.locked,
+      );
+      if (held) target = held;
+      else this.manualTargetId = null;
+    }
+    if (!target) {
+      for (const b of this.beasts) {
+        if (!b.alive || b.locked) continue;
+        // Bosses always take priority; otherwise the closest to doing damage.
+        const score = (b.isBoss ? 1000 : 0) + b.progress(this.shield);
+        if (!target || score > target._score) { target = b; target._score = score; }
+      }
     }
     if (target !== this.targetBeast) {
       this.targetBeast = target;

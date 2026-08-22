@@ -144,6 +144,93 @@ async function main() {
   check('boulders ask for a factor in words the rock shows itself',
         prompts.composite === '? × ? = 48' && prompts.prime === '? × ? = 17');
 
+  // --- the lattice actually renders every cell ------------------------------
+  // Regression: batching the cells into four fills for performance used a
+  // roundRect helper that called beginPath(), so each cell discarded the
+  // previous one and only four cells per beast were ever drawn. Logic tests
+  // cannot see this -- it has to be counted in pixels.
+  const lattice = await page.evaluate(async () => {
+    const M = await import('/src/entities/beasts/index.js');
+    const g = window.game;
+    const count = (a, b) => {
+      g.beasts.length = 0; g.waveRemaining = 0; g.spawnTimer = 999; g.waveBanner = 0;
+      g.shockwaves.clear(); g.orbs.clear(); g.particles.clear();
+      const beast = new M.MultBeast(a, b, 640, 300, 0);
+      g.beasts.push(beast);
+      g.draw();
+      const PITCH = 15, CELL = 12;
+      const x0 = beast.x - beast.w / 2, y0 = beast.y - beast.h / 2;
+      // Calibrate against the dark shell just outside the grid.
+      const bg = g.ctx.getImageData(Math.round(x0 - 5), Math.round(y0 - 5), 1, 1).data;
+      const floor = bg[0] + bg[1] + bg[2] + 90;
+      let lit = 0;
+      for (let j = 0; j < b; j++) {
+        for (let i = 0; i < a; i++) {
+          const d = g.ctx.getImageData(Math.round(x0 + i * PITCH + CELL / 2),
+                                       Math.round(y0 + j * PITCH + CELL / 2), 1, 1).data;
+          if (d[0] + d[1] + d[2] > floor) lit++;
+        }
+      }
+      return { expected: a * b, lit };
+    };
+    return { small: count(3, 3), mid: count(6, 7), big: count(12, 12) };
+  });
+  check('every lattice cell is drawn, not one per colour bucket',
+        lattice.small.lit === 9 && lattice.mid.lit === 42 && lattice.big.lit === 144);
+
+  // --- choosing which beast to solve ----------------------------------------
+  await page.evaluate(async () => {
+    const M = await import('/src/entities/beasts/index.js');
+    const g = window.game;
+    g.beasts.length = 0; g.shots.length = 0; g.targetBeast = null; g.manualTargetId = null;
+    g.waveRemaining = 0; g.spawnTimer = 999;
+    g.beasts.push(new M.MultBeast(6, 7, 260, 140, 0));
+    g.beasts.push(new M.SplitBeast(48, 620, 250, 0));
+    g.beasts.push(new M.MultBeast(9, 4, 880, 380, 0));
+  });
+  await page.waitForTimeout(350);
+  const tAuto = await state(() => ({ x: Math.round(window.game.targetBeast.x),
+                                     manual: window.game.manualTargetId != null }));
+  check('auto-target picks the most dangerous beast', tAuto.x > 800 && !tAuto.manual);
+
+  await page.keyboard.press('BracketLeft');
+  await page.waitForTimeout(150);
+  const tLeft = await state(() => ({ x: Math.round(window.game.targetBeast.x),
+                                     manual: window.game.manualTargetId != null }));
+  check('[ steps the target left and locks it', tLeft.x < 700 && tLeft.manual);
+
+  await page.waitForTimeout(900);
+  const tHeld = await state(() => Math.round(window.game.targetBeast.x));
+  check('a manual target is not stolen back by auto-targeting',
+        Math.abs(tHeld - tLeft.x) < 40);
+
+  await page.keyboard.press('BracketRight');
+  await page.waitForTimeout(150);
+  check('] steps the target back right',
+        (await state(() => Math.round(window.game.targetBeast.x))) > 800 ||
+        (await state(() => Math.round(window.game.targetBeast.x))) < 400);
+
+  // Firing releases the lock so the turret resumes defending.
+  await page.evaluate(() => { window.game.input = ''; });
+  await type(await state(() => window.game.targetBeast.answerText));
+  await page.waitForTimeout(900);
+  check('firing releases the manual lock back to auto',
+        (await state(() => window.game.manualTargetId)) === null);
+
+  // The click-to-target inverse must survive a zoomed, shaken camera.
+  const inv = await state(() => {
+    const g = window.game, w = 1280, h = 720, c = g.camera;
+    c.zoom = 1.14; c.shakeX = 7; c.shakeY = -4; c.shakeRot = 0.02;
+    const pt = { x: 421, y: 233 };
+    const cos = Math.cos(c.shakeRot), sin = Math.sin(c.shakeRot);
+    let x = (pt.x - w / 2 + c.shakeX - c.x) * c.zoom;
+    let y = (pt.y - h / 2 + c.shakeY - c.y) * c.zoom;
+    const back = c.screenToWorld(x * cos - y * sin + w / 2, x * sin + y * cos + h / 2, w, h);
+    c.zoom = 1; c.shakeX = 0; c.shakeY = 0; c.shakeRot = 0;
+    return Math.max(Math.abs(back.x - pt.x), Math.abs(back.y - pt.y));
+  });
+  check('click-to-target maps correctly under zoom and shake', inv < 0.01);
+
   // --- discovering a prime is free -----------------------------------------
   await only('new M.SplitBeast(17, 560, 260, 0)');
   await waitTarget();
