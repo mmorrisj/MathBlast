@@ -511,7 +511,6 @@ class Game {
     this.wave++;
     setThemeWave(this.wave);
     this.audio.setWave(this.wave);
-    if (this.wave > 1) this.audio.drop();
     this.waveBanner = 2.2;
     this.waveMisses = 0;
     this.wavePhase = 'active';
@@ -533,10 +532,17 @@ class Game {
   _endWave() {
     this.wavePhase = 'interlude';
     this.phaseTimer = INTERLUDE;
+    this.interludeLen = INTERLUDE;
     this.lastPerfect = this.waveMisses === 0;
-    this.audio.holdBeat(1.3);
-    // Build through the silence so the next wave arrives on a drop.
-    this.audio.riser(1.15, INTERLUDE - 1.2);
+    this.audio.holdBeat(1.1);
+    // The build is locked to a bar line and schedules its own drop, so the
+    // interlude runs for exactly as long as the music needs rather than a
+    // fixed 2.3s that lands wherever it lands.
+    const untilDrop = this.audio.buildUp(INTERLUDE - 0.5);
+    if (untilDrop > 0) {
+      this.phaseTimer = untilDrop;
+      this.interludeLen = untilDrop;
+    }
     this.camera.punchIn(0.94, 0, 0);
     if (this.lastPerfect) {
       this.audio.resolve();
@@ -892,7 +898,7 @@ class Game {
     if (this.state === 'playing') {
       if (q.desat) drawFocus(this.out, this, W, H, this.camera.slowmo, this.camera);
       if (this.wavePhase === 'interlude') {
-        drawInterlude(this.out, this, W, H, 1 - this.phaseTimer / INTERLUDE);
+        drawInterlude(this.out, this, W, H, 1 - this.phaseTimer / (this.interludeLen || INTERLUDE));
       }
     }
     // Instructions replace the title/game-over overlay rather than stacking on

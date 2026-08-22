@@ -659,6 +659,51 @@ async function main() {
         arrangement[0].hats === 8 && arrangement[3].hats === 16 &&
         arrangement[3].bpm - arrangement[0].bpm >= 30);
 
+  // The wave build, rendered offline and measured. The first version used an
+  // exponential gain ramp, which is a factor of thousands and so stays
+  // inaudible until the last tenth -- it landed as a zip rather than a rise,
+  // and only listening or measuring catches that.
+  const build = await state(async () => {
+    const { Audio } = await import('/src/audio.js');
+    const SR = 44100;
+    const off = new OfflineAudioContext(1, SR * 5, SR);
+    const a = new Audio();
+    const realAC = window.AudioContext;
+    window.AudioContext = function () { return off; };
+    a.start();
+    window.AudioContext = realAC;
+    clearInterval(a.timer);
+    a.setWave(4);
+    const until = a.buildUp(1.8);
+
+    const buf = await off.startRendering();
+    const d = buf.getChannelData(0);
+    const frame = Math.floor(SR * 0.01);
+    const env = [];
+    let peak = 0;
+    for (let i = 0; i < d.length; i++) peak = Math.max(peak, Math.abs(d[i]));
+    for (let f = 0; f * frame < d.length; f++) {
+      let sum = 0;
+      for (let i = f * frame; i < Math.min((f + 1) * frame, d.length); i++) sum += d[i] * d[i];
+      env.push(Math.sqrt(sum / frame));
+    }
+    const at = (t) => Math.floor(t / 0.01);
+    const curve = [0.15, 0.3, 0.45, 0.6, 0.75, 0.9].map((f) => env[at(until * f)]);
+    return {
+      until,
+      peak,
+      curve,
+      rises: curve.every((v, i) => i === 0 || v >= curve[i - 1] * 0.85),
+      // The swell must be audible early, not silent until the end.
+      audibleEarly: curve[1] > curve[5] * 0.1,
+      loudestAt: env.indexOf(Math.max(...env)) * 0.01,
+    };
+  });
+  check('the wave build swells instead of spiking at the end',
+        build.rises && build.audibleEarly && !(build.peak > 1));
+  check('the build lands on its drop, and the drop is the loudest moment',
+        build.until > 1.5 && Math.abs(build.loudestAt - build.until) < 0.15);
+
   // --- scores and profile records -------------------------------------------
   const board = await state(() => {
     const { Scores } = window.__scoresMod || {};
