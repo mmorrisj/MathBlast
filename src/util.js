@@ -92,3 +92,7 @@ export function parsePair(raw) {
   const m = /^(\d+)\s*[×x*]\s*(\d+)$/.exec(String(raw).trim());
   return m ? [parseInt(m[1], 10), parseInt(m[2], 10)] : null;
 }
+
+// Answers are stored with an ASCII hyphen so they parse; screens show the real
+// minus sign so they match the prompts they answer.
+export const showSigned = (s) => String(s).replace(/^-/, '\u2212');

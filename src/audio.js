@@ -38,6 +38,16 @@ const PROGRESSIONS = [
   [0, 4, 5, 2],
 ];
 
+// One bar of sixteenths per sector. null is a rest; a number is a scale degree
+// above the current chord root, so the hook follows both the progression and
+// the mode the player's accuracy has selected.
+const HOOKS = [
+  null,
+  [0, null, null, 2, null, null, 4, null, 2, null, null, 4, null, 2, null, null],
+  [4, null, 2, 4, null, 7, null, 4, 2, null, 4, null, 0, null, 2, null],
+  [7, null, 5, 4, 7, null, 9, 7, 5, null, 4, 2, 0, 2, 4, null],
+];
+
 const semiToRatio = (s) => Math.pow(2, s / 12);
 
 export class Audio {
@@ -54,6 +64,7 @@ export class Audio {
     this.modeBlend = 1.5;         // continuous; rounded to pick a mode
     this.bpm = 100;
     this.progression = PROGRESSIONS[0];
+    this.band = 0;                // arrangement stage, 0..3
     this.silentUntil = 0;         // wall-clock time to hold the arrangement
     this.layerGain = {};
     this.chordDegree = 0;
@@ -93,16 +104,25 @@ export class Audio {
     this.verbReturn.connect(this.comp);
 
     this.musicBus.connect(this.comp);
+
     this.sfxBus.connect(this.comp);
     this.comp.connect(this.master);
     this.master.connect(ctx.destination);
 
-    for (const name of ['pad', 'bass', 'arp', 'drums']) {
+    // Sidechain pump: the kick ducks everything melodic and it swells back.
+    // This is most of what makes a driving track feel driving.
+    this.pump = ctx.createGain();
+    this.pump.gain.value = 1;
+    this.pump.connect(this.comp);
+
+    for (const name of ['pad', 'bass', 'arp', 'drums', 'lead']) {
       const g = ctx.createGain();
       g.gain.value = 0;
-      g.connect(this.musicBus);
+      // Drums stay out of the pump, or they duck themselves.
+      g.connect(name === 'drums' ? this.musicBus : this.pump);
       this.layerGain[name] = g;
     }
+    this.pumpAmount = 0;
     // The pad is the layer that most benefits from space.
     this.padSend = ctx.createGain();
     this.padSend.gain.value = 0.5;
@@ -176,8 +196,12 @@ export class Audio {
 
   setWave(wave) {
     this.wave = wave;
-    // 100bpm at wave 1, creeping to 124 and holding.
-    this.bpm = 100 + Math.min(wave - 1, 10) * 2.4;
+    // +2.4bpm a wave was inaudible while playing. Four is felt, and the
+    // arrangement changes in bands so the track is recognisably different by
+    // the time the sky is.
+    this.bpm = 100 + Math.min(wave - 1, 9) * 4;
+    this.band = Math.min(Math.floor((wave - 1) / 3), 3);
+    this.pumpAmount = this.band === 0 ? 0 : 0.18 + this.band * 0.12;
     this.progression = PROGRESSIONS[(wave - 1) % PROGRESSIONS.length];
   }
 
@@ -198,6 +222,9 @@ export class Audio {
       bass: clamp((this.danger - 0.12) / 0.3, 0, 1) * 0.55 * hold,
       arp: clamp((this.danger - 0.42) / 0.3, 0, 1) * 0.34 * hold,
       drums: clamp((this.danger - 0.62) / 0.28, 0, 1) * 0.5 * hold,
+      lead: this.band >= 1
+        ? clamp((this.danger - 0.3) / 0.35, 0, 1) * (0.16 + this.band * 0.05) * hold
+        : 0,
     };
     for (const k in targets) {
       this.layerGain[k].gain.setTargetAtTime(targets[k], t, hold ? 0.35 : 0.12);
@@ -253,7 +280,11 @@ export class Audio {
 
     if (s === 0) this._pad(this.chordDegree, time);
     if (s % 4 === 0 || s === 6 || s === 14) this._bass(root, time, s);
+    // Offbeat stabs from the second sector: the bassline stops walking and
+    // starts pushing.
+    if (this.band >= 1 && (s === 3 || s === 11)) this._bass(root, time, -1);
     if (s % 2 === 0) this._arp(this.chordDegree, time, step);
+    this._hook(this.chordDegree, time, s);
     this._drums(s, time);
   }
 
@@ -297,9 +328,19 @@ export class Audio {
   _arp(degree, time, step) {
     const g = this.layerGain.arp;
     const tones = this._chordTones(degree);
-    const seq = [tones[0], tones[1], tones[2], tones[1] + 12, tones[2] + 12, tones[1] + 12, tones[2], tones[1]];
+    // Each band reshapes the figure: rising, then wider, then broken, then
+    // driving. Same harmony, audibly different music.
+    const SHAPES = [
+      [0, 1, 2, 1],
+      [0, 2, 1, 2, 0, 1, 2, 1],
+      [2, 0, 1, 0, 2, 1, 0, 2],
+      [0, 2, 1, 2, 1, 0, 2, 1],
+    ];
+    const shape = SHAPES[this.band] || SHAPES[0];
+    const oct = this.band >= 2 && Math.floor(step / 2) % 4 === 3 ? 12 : 0;
+    const seq = shape.map((i) => tones[i] + (i === 2 ? 12 : 0) + oct);
     const o = this.ctx.createOscillator();
-    o.type = 'square';
+    o.type = this.band >= 2 ? 'sawtooth' : 'square';
     o.frequency.value = this._chordRoot(degree) * semiToRatio(seq[Math.floor(step / 2) % seq.length]) * 4;
     const vg = this.ctx.createGain();
     vg.gain.setValueAtTime(0.0001, time);
@@ -313,14 +354,57 @@ export class Audio {
     o.start(time); o.stop(time + 0.2);
   }
 
+  // A hook: one bar of melody per sector, played on detuned saws over the
+  // progression. An arpeggio is texture; this is the part you hum.
+  _hook(degree, time, s) {
+    const motif = HOOKS[this.band];
+    if (!motif) return;
+    const d = motif[s];
+    if (d == null) return;
+    const g = this.layerGain.lead;
+    const base = this._chordRoot(degree) * 4;
+    const freq = base * semiToRatio(this._degree(degree + d) - this._degree(degree));
+    const dur = this.spb * (this.band >= 3 ? 0.5 : 0.7);
+
+    const f = this.ctx.createBiquadFilter();
+    f.type = 'lowpass';
+    f.frequency.setValueAtTime(4200 + this.danger * 2600, time);
+    f.Q.value = 3;
+    const vg = this.ctx.createGain();
+    vg.gain.setValueAtTime(0.0001, time);
+    vg.gain.exponentialRampToValueAtTime(0.22, time + 0.012);
+    vg.gain.exponentialRampToValueAtTime(0.0001, time + dur);
+    f.connect(vg); vg.connect(g);
+
+    for (const detune of [-7, 7]) {
+      const o = this.ctx.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.value = freq;
+      o.detune.value = detune;
+      o.connect(f);
+      o.start(time); o.stop(time + dur + 0.05);
+    }
+  }
+
   _drums(s, time) {
     const g = this.layerGain.drums;
     if (s % 8 === 0) this._kick(time, g);
+    if (this.band >= 2 && s === 14) this._kick(time, g);      // pickup
     if (s === 4 || s === 12) this._snare(time, g);
-    if (s % 2 === 0) this._hat(time, g, s % 4 === 0 ? 0.16 : 0.09);
+    if (this.band >= 1 && (s === 7 || s === 15)) this._snare(time, g);
+    // Straight eighths, then sixteenths once the sky turns.
+    const hatEvery = this.band >= 1 ? 1 : 2;
+    if (s % hatEvery === 0) this._hat(time, g, s % 4 === 0 ? 0.16 : 0.07);
   }
 
   _kick(time, dest) {
+    // Duck the melodic layers and let them swell back before the next kick.
+    if (this.pumpAmount > 0.01) {
+      const p = this.pump.gain;
+      p.cancelScheduledValues(time);
+      p.setValueAtTime(1 - this.pumpAmount, time);
+      p.linearRampToValueAtTime(1, time + this.spb * 0.55);
+    }
     const o = this.ctx.createOscillator();
     o.type = 'sine';
     o.frequency.setValueAtTime(150, time);
@@ -449,6 +533,66 @@ export class Audio {
     this.musicBus.gain.cancelScheduledValues(t);
     this.musicBus.gain.setValueAtTime(0.12, t);
     this.musicBus.gain.setTargetAtTime(1, t + 0.35, 0.5);
+  }
+
+  // A rising sweep through the held silence, landing on the next wave. The
+  // build is what makes the speed increase read as an event rather than a
+  // number quietly going up.
+  riser(delay = 1.2, dur = 1.05) {
+    if (!this.ready) return;
+    const t = this.ctx.currentTime + delay;
+
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = this.noiseBuf;
+    noise.loop = true;
+    const bp = this.ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.Q.value = 1.6;
+    bp.frequency.setValueAtTime(400, t);
+    bp.frequency.exponentialRampToValueAtTime(7000, t + dur);
+    const ng = this.ctx.createGain();
+    ng.gain.setValueAtTime(0.0001, t);
+    ng.gain.exponentialRampToValueAtTime(0.26, t + dur * 0.92);
+    ng.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    noise.connect(bp); bp.connect(ng); ng.connect(this.sfxBus);
+    noise.start(t); noise.stop(t + dur + 0.05);
+
+    // A pitched sweep under it, so the build has a note as well as air.
+    const o = this.ctx.createOscillator();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(this._chordRoot(0), t);
+    o.frequency.exponentialRampToValueAtTime(this._chordRoot(0) * 8, t + dur);
+    const og = this.ctx.createGain();
+    og.gain.setValueAtTime(0.0001, t);
+    og.gain.exponentialRampToValueAtTime(0.13, t + dur * 0.9);
+    og.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    const lp = this.ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 3200;
+    o.connect(lp); lp.connect(og); og.connect(this.sfxBus);
+    o.start(t); o.stop(t + dur + 0.05);
+  }
+
+  // The downbeat the riser was climbing to.
+  drop() {
+    if (!this.ready) return;
+    const t = this.ctx.currentTime;
+    this._kick(t, this.layerGain.drums);
+    this._noise(t, 0.5, this.sfxBus, 0.3, 'lowpass', 2600);
+    const o = this.ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(180, t);
+    o.frequency.exponentialRampToValueAtTime(38, t + 0.5);
+    const vg = this.ctx.createGain();
+    vg.gain.setValueAtTime(0.6, t);
+    vg.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
+    o.connect(vg); vg.connect(this.sfxBus);
+    o.start(t); o.stop(t + 0.65);
+    // Snap the pump wide open so the first bar lands hard.
+    if (this.pump) {
+      this.pump.gain.cancelScheduledValues(t);
+      this.pump.gain.setValueAtTime(1, t);
+    }
   }
 
   // Cleared a wave without a miss: the progression resolves to the tonic.

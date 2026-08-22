@@ -23,16 +23,25 @@ export class FractionBeast extends Beast {
   }
 
   get magnitude() { return this.q * 6; }
-  get promptText() { return 'missing?'; }
-  get hintText() { return 'missing fraction (p/q):'; }
+  get promptText() { return `? / ${this.q}`; }
+  get hintText() { return `missing piece: ? / ${this.q}  (or 3/8 form) =`; }
   get answerText() { return `${this.rp}/${this.rq}`; }
 
   accepts(raw) {
-    const m = /^(\d+)\s*\/\s*(\d+)$/.exec(String(raw).trim());
-    if (!m) return false;
-    const a = parseInt(m[1], 10), b = parseInt(m[2], 10);
-    if (!b) return false;
-    return a * this.rq === b * this.rp;    // cross-multiply: any equivalent form
+    const s = String(raw).trim();
+    const m = /^(\d+)\s*\/\s*(\d+)$/.exec(s);
+    if (m) {
+      const a = parseInt(m[1], 10), b = parseInt(m[2], 10);
+      if (!b) return false;
+      return a * this.rq === b * this.rp;  // cross-multiply: any equivalent form
+    }
+    // A bare number means that many of the slices drawn, which is what the
+    // label "? / 8" asks for and what a counting player types.
+    if (/^\d+$/.test(s)) {
+      const n = parseInt(s, 10);
+      return n * this.rq === this.q * this.rp;
+    }
+    return false;
   }
 
   emitCollapse(particles, prevT) {
@@ -112,7 +121,7 @@ export class FractionBeast extends Beast {
     ctx.stroke();
     ctx.restore();
 
-    if (!dying) this.drawLabel(ctx, `? of ${this.q}`, 24);
+    if (!dying) this.drawLabel(ctx, this.promptText, 26);
     ctx.restore();
   }
 }

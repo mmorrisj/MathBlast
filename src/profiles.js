@@ -70,6 +70,7 @@ export class Profiles {
       bestCombo: 0,
       solved: 0,
       attempts: 0,
+      tier: 'medium',
     };
     this.list.push(profile);
     this.activeId = id;
@@ -121,9 +122,9 @@ export class Scores {
   get best() { return this.list.length ? this.list[0].score : 0; }
 
   // Returns the 1-based placing, or 0 if the run did not make the table.
-  add({ name, score, wave, accuracy, combo, at }) {
+  add({ name, score, wave, accuracy, combo, at, tier }) {
     if (!score) return 0;
-    const entry = { name, score, wave, accuracy, combo, at: at || 0 };
+    const entry = { name, score, wave, accuracy, combo, tier: tier || 'medium', at: at || 0 };
     this.list.push(entry);
     this.list.sort((a, b) => b.score - a.score || b.wave - a.wave);
     this.list = this.list.slice(0, MAX_SCORES);

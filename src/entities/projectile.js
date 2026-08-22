@@ -1,7 +1,7 @@
 // The answer you typed, fired as a physical object. Homes onto the target beast
 // so the moment of truth happens at the beast, not in a text box.
 
-import { TAU, clamp } from '../util.js';
+import { TAU, clamp, showSigned } from '../util.js';
 import { theme } from '../theme.js';
 
 export class Projectile {
@@ -68,7 +68,7 @@ export class Projectile {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = '#ffffff';
-    ctx.fillText(String(this.value), this.x, this.y);
+    ctx.fillText(showSigned(this.value), this.x, this.y);
     ctx.restore();
   }
 }

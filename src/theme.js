@@ -15,12 +15,24 @@ const PALETTES = {
   colorSafe: { friendly: 214, hostile: 46, void: 288, boss: 320, orb: 200 },
 };
 
-// Environment hue per wave: deep blue -> violet -> ember.
-const ENV_STOPS = [250, 250, 262, 274, 288, 300, 316, 330, 344, 356];
+// Progress is banded rather than smeared. Twelve degrees of hue per wave is
+// invisible while you are playing; a named sector every three waves, with its
+// own nebula strength and star tint, is not.
+const BANDS = [
+  { name: 'BLUE DRIFT',   env: 248, next: 282, nebula: 1,    star: 208 },
+  { name: 'VIOLET REACH', env: 282, next: 322, nebula: 1.35, star: 268 },
+  { name: 'EMBER FIELD',  env: 326, next: 350, nebula: 1.7,  star: 26 },
+  { name: 'CRIMSON DEEP', env: 353, next: 366, nebula: 2.1,  star: 8 },
+];
+export const BAND_WAVES = 3;
 
 export const theme = {
   ...PALETTES.default,
-  env: ENV_STOPS[0],
+  env: BANDS[0].env,
+  nebula: 1,
+  starHue: BANDS[0].star,
+  band: 0,
+  bandName: BANDS[0].name,
   colorSafe: false,
   reducedMotion: false,
 };
@@ -31,9 +43,16 @@ export function setColorSafe(on) {
 }
 
 export function setThemeWave(wave) {
-  const i = clamp(wave - 1, 0, ENV_STOPS.length - 1);
-  const j = Math.min(i + 1, ENV_STOPS.length - 1);
-  theme.env = lerp(ENV_STOPS[i], ENV_STOPS[j], 0.35);
+  const i = clamp(Math.floor((wave - 1) / BAND_WAVES), 0, BANDS.length - 1);
+  const b = BANDS[i];
+  // Drift a little within the band so the jump at the boundary is a step, not
+  // a cliff, and the middle of a band is not static either.
+  const within = clamp(((wave - 1) % BAND_WAVES) / BAND_WAVES, 0, 1);
+  theme.band = i;
+  theme.bandName = b.name;
+  theme.env = lerp(b.env, b.next, within * 0.55);
+  theme.nebula = b.nebula * (1 + within * 0.12);
+  theme.starHue = b.star;
 }
 
 export function setReducedMotion(on) { theme.reducedMotion = on; }

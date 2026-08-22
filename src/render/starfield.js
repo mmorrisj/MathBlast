@@ -6,7 +6,7 @@
 // breathes at 0.35Hz, so nobody can see the update rate, and it turns three
 // full-screen gradient fills per frame into one scaled blit.
 
-import { rand, TAU } from '../util.js';
+import { rand, TAU, lerp } from '../util.js';
 import { theme } from '../theme.js';
 
 const BAKE_INTERVAL = 0.2;
@@ -77,8 +77,8 @@ export class Starfield {
       [w * 0.78, h * 0.52, h * 0.45, 0.12],
     ]) {
       const pulse = 1 + Math.sin(this.t * 0.35 + cx) * 0.06;
-      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r * pulse);
-      g.addColorStop(0, `hsla(${hue}, 80%, 55%, ${a * (1 + danger)})`);
+      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r * pulse * (0.9 + theme.nebula * 0.16));
+      g.addColorStop(0, `hsla(${hue}, 80%, 55%, ${a * (1 + danger) * theme.nebula})`);
       g.addColorStop(1, `hsla(${theme.env}, 80%, 50%, 0)`);
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, w, h);
@@ -123,7 +123,8 @@ export class Starfield {
         const s = L.stars[i];
         const tw = 0.65 + Math.sin(this.t * 2.4 + s.tw) * 0.35;
         const r = L.size * tw;
-        ctx.fillStyle = `hsla(${s.hue}, 90%, 82%, ${L.alpha * tw})`;
+        // Stars take on the sector's colour, so the whole sky changes with it.
+        ctx.fillStyle = `hsla(${lerp(s.hue, theme.starHue, 0.42)}, 90%, 82%, ${L.alpha * tw})`;
         ctx.fillRect(s.x - r, s.y - r, r * 2, r * 2);
       }
     }
