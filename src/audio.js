@@ -1,23 +1,42 @@
-// Synthesized audio. Everything is generated with oscillators and noise buffers,
-// so the game ships with zero audio assets.
+// Synthesized audio. Every sound is generated from oscillators and noise
+// buffers, so the game ships with zero audio assets.
 //
-// Two ideas drive this file:
-//   1. Every gameplay sound is quantized to the beat grid, so play *sounds* musical.
-//   2. Correct answers walk up a pentatonic scale, one degree per combo step, so a
-//      streak plays a melody. Wrong answers never buzz -- they just drop you back
-//      to the bottom of the ladder.
+// Four ideas drive this file:
+//
+//   1. Gameplay sounds are quantized to the beat grid, so play sounds musical
+//      rather than like noise over the top of a track.
+//   2. Correct answers walk up the *chord currently playing*, one tone per combo
+//      step. The streak melody is harmonised with the backing, not layered onto
+//      it, which is most of the difference between "composed" and "bolted on".
+//   3. The mode shifts with the player's rolling accuracy -- Phrygian when
+//      they're struggling, Ionian when they're flying. The soundtrack narrates
+//      competence, not just threat.
+//   4. Tempo and chord progression advance with the wave, so minute eight does
+//      not sound like minute one.
 
-import { clamp } from './util.js';
+import { clamp, lerp } from './util.js';
 
-const BPM = 100;
-const SPB = 60 / BPM;          // seconds per beat
-const STEP = SPB / 4;          // 16th note
-const LOOKAHEAD = 0.12;        // schedule this far ahead, in seconds
+const LOOKAHEAD = 0.12;
 const TICK_MS = 25;
+const ROOT = 110;                 // A2
 
-// A minor pentatonic, as semitone offsets from the root.
-const PENT = [0, 3, 5, 7, 10];
-const ROOT = 110;              // A2
+// Modes as semitone offsets, ordered darkest to brightest. Rolling accuracy
+// indexes into this list.
+const MODES = [
+  [0, 1, 3, 5, 7, 8, 10],        // Phrygian
+  [0, 2, 3, 5, 7, 8, 10],        // Aeolian
+  [0, 2, 3, 5, 7, 9, 10],        // Dorian
+  [0, 2, 4, 5, 7, 9, 10],        // Mixolydian
+  [0, 2, 4, 5, 7, 9, 11],        // Ionian
+];
+
+// Chord progressions as scale-degree indices. One is chosen per wave.
+const PROGRESSIONS = [
+  [0, 5, 3, 4],
+  [0, 3, 4, 3],
+  [0, 6, 5, 4],
+  [0, 4, 5, 2],
+];
 
 const semiToRatio = (s) => Math.pow(2, s / 12);
 
@@ -26,13 +45,23 @@ export class Audio {
     this.ctx = null;
     this.ready = false;
     this.muted = false;
-    this.step = 0;             // 16th-note counter since start
+    this.step = 0;
     this.nextStepTime = 0;
     this.timer = null;
+
     this.danger = 0;
+    this.wave = 1;
+    this.modeBlend = 1.5;         // continuous; rounded to pick a mode
+    this.bpm = 100;
+    this.progression = PROGRESSIONS[0];
+    this.silentUntil = 0;         // wall-clock time to hold the arrangement
     this.layerGain = {};
-    this.noiseBuf = null;
+    this.chordDegree = 0;
   }
+
+  get spb() { return 60 / this.bpm; }
+  get stepDur() { return this.spb / 4; }
+  get mode() { return MODES[clamp(Math.round(this.modeBlend), 0, MODES.length - 1)]; }
 
   // Must be called from a user gesture (browser autoplay policy).
   start() {
@@ -52,24 +81,34 @@ export class Audio {
     this.master.gain.value = 0.9;
 
     this.musicBus = ctx.createGain();
-    this.musicBus.gain.value = 1;
     this.sfxBus = ctx.createGain();
-    this.sfxBus.gain.value = 1;
+
+    // Reverb from a synthesized impulse response -- exponentially decaying
+    // stereo noise. Gives the whole mix a room without shipping a WAV.
+    this.verb = ctx.createConvolver();
+    this.verb.buffer = this._impulse(2.1, 2.6);
+    this.verbReturn = ctx.createGain();
+    this.verbReturn.gain.value = 0.9;
+    this.verb.connect(this.verbReturn);
+    this.verbReturn.connect(this.comp);
 
     this.musicBus.connect(this.comp);
     this.sfxBus.connect(this.comp);
     this.comp.connect(this.master);
     this.master.connect(ctx.destination);
 
-    // Per-layer gains. These fade in as danger rises -- the mix *is* the threat meter.
     for (const name of ['pad', 'bass', 'arp', 'drums']) {
       const g = ctx.createGain();
       g.gain.value = 0;
       g.connect(this.musicBus);
       this.layerGain[name] = g;
     }
+    // The pad is the layer that most benefits from space.
+    this.padSend = ctx.createGain();
+    this.padSend.gain.value = 0.5;
+    this.layerGain.pad.connect(this.padSend);
+    this.padSend.connect(this.verb);
 
-    // One second of white noise, reused for hats, snares and impacts.
     const len = ctx.sampleRate;
     const buf = ctx.createBuffer(1, len, ctx.sampleRate);
     const d = buf.getChannelData(0);
@@ -81,6 +120,22 @@ export class Audio {
     this.ready = true;
   }
 
+  _impulse(seconds, decay) {
+    const rate = this.ctx.sampleRate;
+    const n = Math.floor(rate * seconds);
+    const buf = this.ctx.createBuffer(2, n, rate);
+    for (let c = 0; c < 2; c++) {
+      const d = buf.getChannelData(c);
+      for (let i = 0; i < n; i++) {
+        // Slight early build so it reads as a hall rather than a gate.
+        const t = i / n;
+        const env = Math.pow(1 - t, decay) * Math.min(1, t * 40);
+        d[i] = (Math.random() * 2 - 1) * env;
+      }
+    }
+    return buf;
+  }
+
   resume() { if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume(); }
 
   toggleMute() {
@@ -89,66 +144,130 @@ export class Audio {
     return this.muted;
   }
 
-  // ---- scheduling -------------------------------------------------------
+  // ---- routing helpers --------------------------------------------------
 
-  // Time of the next 8th-note boundary. Gameplay SFX snap here so kills land on
-  // the grid instead of sounding like noise over the top of the track.
-  _nextEighth() {
-    if (!this.ready) return 0;
-    const t = this.ctx.currentTime;
-    const grid = STEP * 2;
-    return Math.ceil((t + 0.005) / grid) * grid;
+  // Pan by screen x so you hear which side of the planet is under pressure.
+  _panned(x, sendAmount = 0) {
+    const g = this.ctx.createGain();
+    if (this.ctx.createStereoPanner) {
+      const p = this.ctx.createStereoPanner();
+      p.pan.value = clamp((x / 1280) * 2 - 1, -1, 1) * 0.75;
+      g.connect(p);
+      p.connect(this.sfxBus);
+      if (sendAmount > 0) {
+        const s = this.ctx.createGain();
+        s.gain.value = sendAmount;
+        p.connect(s);
+        s.connect(this.verb);
+      }
+    } else {
+      g.connect(this.sfxBus);
+      if (sendAmount > 0) {
+        const s = this.ctx.createGain();
+        s.gain.value = sendAmount;
+        g.connect(s);
+        s.connect(this.verb);
+      }
+    }
+    return g;
   }
 
-  _schedule() {
-    if (!this.ready) return;
-    const ctx = this.ctx;
-    while (this.nextStepTime < ctx.currentTime + LOOKAHEAD) {
-      this._playStep(this.step, this.nextStepTime);
-      this.step++;
-      this.nextStepTime += STEP;
-    }
+  // ---- musical state ----------------------------------------------------
+
+  setWave(wave) {
+    this.wave = wave;
+    // 100bpm at wave 1, creeping to 124 and holding.
+    this.bpm = 100 + Math.min(wave - 1, 10) * 2.4;
+    this.progression = PROGRESSIONS[(wave - 1) % PROGRESSIONS.length];
+  }
+
+  // `accuracy` is a rolling 0..1. Drives how bright the mode is.
+  setAccuracy(accuracy) {
+    const target = clamp(accuracy, 0, 1) * (MODES.length - 1);
+    // Ease so the mode drifts rather than flipping on a single answer.
+    this.modeBlend = lerp(this.modeBlend, target, 0.08);
   }
 
   setDanger(d) {
     this.danger = clamp(d, 0, 1);
     if (!this.ready) return;
     const t = this.ctx.currentTime;
-    // Each stem has its own threshold, so the arrangement builds in stages.
+    const hold = t < this.silentUntil ? 0 : 1;
     const targets = {
-      pad: 0.5,
-      bass: clamp((this.danger - 0.12) / 0.3, 0, 1) * 0.55,
-      arp: clamp((this.danger - 0.42) / 0.3, 0, 1) * 0.34,
-      drums: clamp((this.danger - 0.62) / 0.28, 0, 1) * 0.5,
+      pad: 0.5 * hold,
+      bass: clamp((this.danger - 0.12) / 0.3, 0, 1) * 0.55 * hold,
+      arp: clamp((this.danger - 0.42) / 0.3, 0, 1) * 0.34 * hold,
+      drums: clamp((this.danger - 0.62) / 0.28, 0, 1) * 0.5 * hold,
     };
     for (const k in targets) {
-      this.layerGain[k].gain.setTargetAtTime(targets[k], t, 0.35);
+      this.layerGain[k].gain.setTargetAtTime(targets[k], t, hold ? 0.35 : 0.12);
     }
   }
+
+  // The held breath between waves. Everything cuts; the reverb tail carries.
+  holdBeat(seconds = 1.15) {
+    if (!this.ready) return;
+    const t = this.ctx.currentTime;
+    this.silentUntil = t + seconds;
+    for (const k in this.layerGain) this.layerGain[k].gain.setTargetAtTime(0, t, 0.09);
+  }
+
+  // ---- scheduling -------------------------------------------------------
+
+  _nextEighth() {
+    if (!this.ready) return 0;
+    const grid = this.stepDur * 2;
+    return Math.ceil((this.ctx.currentTime + 0.005) / grid) * grid;
+  }
+
+  _schedule() {
+    if (!this.ready) return;
+    const ctx = this.ctx;
+    while (this.nextStepTime < ctx.currentTime + LOOKAHEAD) {
+      if (this.nextStepTime >= this.silentUntil) this._playStep(this.step, this.nextStepTime);
+      this.step++;
+      this.nextStepTime += this.stepDur;
+    }
+  }
+
+  // Semitone offset of a scale degree, wrapping octaves.
+  _degree(d) {
+    const m = this.mode;
+    const oct = Math.floor(d / m.length);
+    return m[((d % m.length) + m.length) % m.length] + 12 * oct;
+  }
+
+  // Root, third and fifth stacked in the current mode.
+  _chordTones(degree) {
+    const base = this._degree(degree);
+    return [0, this._degree(degree + 2) - base, this._degree(degree + 4) - base];
+  }
+
+  _chordRoot(degree) { return ROOT * semiToRatio(this._degree(degree)); }
 
   _playStep(step, time) {
     const bar = Math.floor(step / 16);
     const s = step % 16;
-    // Two-bar chord loop: Am -> F -> C -> G, one chord per bar.
-    const prog = [0, -4, 3, -2];
-    const chordRoot = ROOT * semiToRatio(prog[bar % prog.length]);
+    this.chordDegree = this.progression[bar % this.progression.length];
+    const root = this._chordRoot(this.chordDegree);
 
-    if (s === 0) this._pad(chordRoot, time);
-    if (s % 4 === 0 || s === 6 || s === 14) this._bass(chordRoot, time, s);
-    if (s % 2 === 0) this._arp(chordRoot, time, step);
+    if (s === 0) this._pad(this.chordDegree, time);
+    if (s % 4 === 0 || s === 6 || s === 14) this._bass(root, time, s);
+    if (s % 2 === 0) this._arp(this.chordDegree, time, step);
     this._drums(s, time);
   }
 
-  _pad(root, time) {
+  _pad(degree, time) {
     const g = this.layerGain.pad;
-    const dur = SPB * 4;
-    for (const semi of [0, 7, 12, 15]) {
+    const root = this._chordRoot(degree);
+    const dur = this.spb * 4;
+    for (const semi of [...this._chordTones(degree), 12]) {
       const o = this.ctx.createOscillator();
       o.type = 'triangle';
       o.frequency.value = root * semiToRatio(semi) * 2;
       const vg = this.ctx.createGain();
       vg.gain.setValueAtTime(0, time);
-      vg.gain.linearRampToValueAtTime(0.09, time + 0.6);
+      vg.gain.linearRampToValueAtTime(0.085, time + 0.6);
       vg.gain.linearRampToValueAtTime(0, time + dur);
       const f = this.ctx.createBiquadFilter();
       f.type = 'lowpass';
@@ -168,21 +287,20 @@ export class Audio {
     f.frequency.setValueAtTime(260, time);
     f.frequency.exponentialRampToValueAtTime(90, time + 0.22);
     const vg = this.ctx.createGain();
-    const peak = s === 0 ? 0.5 : 0.32;
     vg.gain.setValueAtTime(0.0001, time);
-    vg.gain.exponentialRampToValueAtTime(peak, time + 0.01);
+    vg.gain.exponentialRampToValueAtTime(s === 0 ? 0.5 : 0.32, time + 0.01);
     vg.gain.exponentialRampToValueAtTime(0.0001, time + 0.24);
     o.connect(f); f.connect(vg); vg.connect(g);
     o.start(time); o.stop(time + 0.3);
   }
 
-  _arp(root, time, step) {
+  _arp(degree, time, step) {
     const g = this.layerGain.arp;
-    const idx = Math.floor(step / 2) % 8;
-    const seq = [0, 3, 7, 10, 12, 10, 7, 3];
+    const tones = this._chordTones(degree);
+    const seq = [tones[0], tones[1], tones[2], tones[1] + 12, tones[2] + 12, tones[1] + 12, tones[2], tones[1]];
     const o = this.ctx.createOscillator();
     o.type = 'square';
-    o.frequency.value = root * semiToRatio(seq[idx]) * 4;
+    o.frequency.value = this._chordRoot(degree) * semiToRatio(seq[Math.floor(step / 2) % seq.length]) * 4;
     const vg = this.ctx.createGain();
     vg.gain.setValueAtTime(0.0001, time);
     vg.gain.exponentialRampToValueAtTime(0.1, time + 0.006);
@@ -234,36 +352,43 @@ export class Audio {
 
   // ---- gameplay sounds --------------------------------------------------
 
-  // Correct answer. `combo` is 1-based; each step climbs one pentatonic degree,
-  // so a long streak plays an ascending melody. Snapped to the 8th-note grid.
-  correct(combo) {
+  // Correct answer. The note is a tone of the chord currently sounding, climbing
+  // one chord tone per combo step, so a streak plays a melody that fits the
+  // backing. `power` (0.35..1.65) weights the hit: bigger problems ring lower,
+  // longer and wetter.
+  correct(combo, x = 640, pw = 1) {
     if (!this.ready) return;
     const t = this._nextEighth();
+    const tones = this._chordTones(this.chordDegree);
     const idx = Math.max(0, combo - 1);
-    const oct = Math.min(Math.floor(idx / PENT.length), 2);
-    const semi = PENT[idx % PENT.length] + 12 * oct;
-    const freq = 440 * semiToRatio(semi);
+    const oct = Math.min(Math.floor(idx / tones.length), 2);
+    const semi = tones[idx % tones.length] + 12 * oct;
+    // Heavier problems drop the register so they land with more weight.
+    const base = this._chordRoot(this.chordDegree) * 4 * semiToRatio(-Math.round(pw * 5));
+    const freq = base * semiToRatio(semi);
+    const dest = this._panned(x, 0.22 + pw * 0.2);
 
-    for (const [type, mul, gain, dur] of [['triangle', 1, 0.34, 0.5], ['sine', 2, 0.14, 0.34]]) {
+    const dur = 0.4 + pw * 0.3;
+    for (const [type, mul, gain] of [['triangle', 1, 0.34], ['sine', 2, 0.13], ['sine', 0.5, 0.1 * pw]]) {
       const o = this.ctx.createOscillator();
       o.type = type;
       o.frequency.value = freq * mul;
       const vg = this.ctx.createGain();
       vg.gain.setValueAtTime(0.0001, t);
-      vg.gain.exponentialRampToValueAtTime(gain, t + 0.008);
+      vg.gain.exponentialRampToValueAtTime(Math.max(0.001, gain), t + 0.008);
       vg.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-      o.connect(vg); vg.connect(this.sfxBus);
+      o.connect(vg); vg.connect(dest);
       o.start(t); o.stop(t + dur + 0.05);
     }
-    // Bright transient so the hit reads as an impact, not just a note.
-    this._noise(t, 0.07, this.sfxBus, 0.18, 'highpass', 3800);
+    this._noise(t, 0.06 + pw * 0.05, dest, 0.16 + pw * 0.1, 'highpass', 3800);
   }
 
-  // Wrong answer. Deliberately soft: a detuned low thud, no harsh buzzer.
-  // The punishment is that the beast gets closer, not that the game scolds you.
-  wrong() {
+  // Wrong answer. Soft detuned thud, never a buzzer -- the punishment is that
+  // the beast gets closer, not that the game scolds you.
+  wrong(x = 640) {
     if (!this.ready) return;
     const t = this.ctx.currentTime;
+    const dest = this._panned(x, 0.1);
     for (const f of [92, 96.5]) {
       const o = this.ctx.createOscillator();
       o.type = 'sine';
@@ -276,56 +401,125 @@ export class Audio {
       const lp = this.ctx.createBiquadFilter();
       lp.type = 'lowpass';
       lp.frequency.value = 420;
-      o.connect(vg); vg.connect(lp); lp.connect(this.sfxBus);
+      o.connect(vg); vg.connect(lp); lp.connect(dest);
       o.start(t); o.stop(t + 0.34);
     }
   }
 
-  fire() {
+  fire(x = 640) {
     if (!this.ready) return;
-    const t = this.ctx.currentTime;
-    this._noise(t, 0.09, this.sfxBus, 0.13, 'bandpass', 1100, 2.5);
+    this._noise(this.ctx.currentTime, 0.09, this._panned(x), 0.13, 'bandpass', 1100, 2.5);
   }
 
-  // A shield plate locking into place.
-  plate() {
+  // An orb reaching the dome. Pitch rises with coverage, so filling the shield
+  // walks up a scale across the whole run.
+  absorb(x, coverage = 0) {
     if (!this.ready) return;
     const t = this._nextEighth();
+    const tones = this._chordTones(this.chordDegree);
+    const semi = tones[Math.floor(coverage * tones.length * 3) % tones.length] + 24;
+    const freq = this._chordRoot(this.chordDegree) * 4 * semiToRatio(semi);
+    const dest = this._panned(x, 0.4);
     const o = this.ctx.createOscillator();
     o.type = 'sine';
-    o.frequency.setValueAtTime(1500, t);
-    o.frequency.exponentialRampToValueAtTime(2400, t + 0.05);
+    o.frequency.value = freq;
     const vg = this.ctx.createGain();
     vg.gain.setValueAtTime(0.0001, t);
-    vg.gain.exponentialRampToValueAtTime(0.1, t + 0.005);
-    vg.gain.exponentialRampToValueAtTime(0.0001, t + 0.1);
-    o.connect(vg); vg.connect(this.sfxBus);
-    o.start(t); o.stop(t + 0.13);
+    vg.gain.exponentialRampToValueAtTime(0.09, t + 0.004);
+    vg.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+    o.connect(vg); vg.connect(dest);
+    o.start(t); o.stop(t + 0.26);
   }
 
-  // A beast reaching the surface: sub-bass sweep, impact noise, music ducked.
-  land() {
+  // A beast reaching the surface: sub sweep, impact noise, music ducked.
+  land(x = 640, pw = 1) {
     if (!this.ready) return;
     const t = this.ctx.currentTime;
+    const dest = this._panned(x, 0.5);
     const o = this.ctx.createOscillator();
     o.type = 'sine';
-    o.frequency.setValueAtTime(130, t);
-    o.frequency.exponentialRampToValueAtTime(28, t + 0.9);
+    o.frequency.setValueAtTime(130 * (1.4 - pw * 0.4), t);
+    o.frequency.exponentialRampToValueAtTime(26, t + 0.9);
     const vg = this.ctx.createGain();
     vg.gain.setValueAtTime(0.9, t);
     vg.gain.exponentialRampToValueAtTime(0.0001, t + 1.1);
-    o.connect(vg); vg.connect(this.sfxBus);
+    o.connect(vg); vg.connect(dest);
     o.start(t); o.stop(t + 1.15);
-    this._noise(t, 0.6, this.sfxBus, 0.5, 'lowpass', 700);
-    // Sidechain-style duck so the impact owns the mix for a moment.
+    this._noise(t, 0.5 + pw * 0.3, dest, 0.5, 'lowpass', 700);
     this.musicBus.gain.cancelScheduledValues(t);
     this.musicBus.gain.setValueAtTime(0.12, t);
     this.musicBus.gain.setTargetAtTime(1, t + 0.35, 0.5);
   }
 
+  // Cleared a wave without a miss: the progression resolves to the tonic.
+  resolve() {
+    if (!this.ready) return;
+    const t = this.ctx.currentTime + 0.05;
+    const tones = [...this._chordTones(0), 12, this._degree(4) + 12];
+    tones.forEach((semi, i) => {
+      const o = this.ctx.createOscillator();
+      o.type = 'triangle';
+      o.frequency.value = ROOT * 4 * semiToRatio(semi);
+      const vg = this.ctx.createGain();
+      const at = t + i * 0.055;
+      vg.gain.setValueAtTime(0.0001, at);
+      vg.gain.exponentialRampToValueAtTime(0.2, at + 0.01);
+      vg.gain.exponentialRampToValueAtTime(0.0001, at + 1.5);
+      const send = this.ctx.createGain();
+      send.gain.value = 0.7;
+      o.connect(vg);
+      vg.connect(this.sfxBus);
+      vg.connect(send);
+      send.connect(this.verb);
+      o.start(at); o.stop(at + 1.6);
+    });
+  }
+
+  // Overcharge beam discharging.
+  beam(x = 640) {
+    if (!this.ready) return;
+    const t = this.ctx.currentTime;
+    const dest = this._panned(x, 0.45);
+    const o = this.ctx.createOscillator();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(90, t);
+    o.frequency.exponentialRampToValueAtTime(1400, t + 0.35);
+    const f = this.ctx.createBiquadFilter();
+    f.type = 'bandpass';
+    f.Q.value = 4;
+    f.frequency.setValueAtTime(400, t);
+    f.frequency.exponentialRampToValueAtTime(5200, t + 0.4);
+    const vg = this.ctx.createGain();
+    vg.gain.setValueAtTime(0.0001, t);
+    vg.gain.exponentialRampToValueAtTime(0.36, t + 0.03);
+    vg.gain.exponentialRampToValueAtTime(0.0001, t + 0.7);
+    o.connect(f); f.connect(vg); vg.connect(dest);
+    o.start(t); o.stop(t + 0.75);
+    this._noise(t, 0.5, dest, 0.24, 'highpass', 2200);
+  }
+
+  // Overcharge reaching full.
+  charged() {
+    if (!this.ready) return;
+    const t = this._nextEighth();
+    [0, 7, 12].forEach((semi, i) => {
+      const o = this.ctx.createOscillator();
+      o.type = 'sine';
+      o.frequency.value = ROOT * 8 * semiToRatio(semi);
+      const vg = this.ctx.createGain();
+      const at = t + i * 0.04;
+      vg.gain.setValueAtTime(0.0001, at);
+      vg.gain.exponentialRampToValueAtTime(0.13, at + 0.005);
+      vg.gain.exponentialRampToValueAtTime(0.0001, at + 0.4);
+      o.connect(vg); vg.connect(this.sfxBus);
+      o.start(at); o.stop(at + 0.45);
+    });
+  }
+
   gameOver() {
     if (!this.ready) return;
     const t = this.ctx.currentTime;
+    this.silentUntil = t + 6;
     for (const k in this.layerGain) this.layerGain[k].gain.setTargetAtTime(0, t, 0.4);
     [0, 0.18, 0.36].forEach((d, i) => {
       const o = this.ctx.createOscillator();
@@ -334,9 +528,20 @@ export class Audio {
       const vg = this.ctx.createGain();
       vg.gain.setValueAtTime(0.0001, t + d);
       vg.gain.exponentialRampToValueAtTime(0.3, t + d + 0.01);
-      vg.gain.exponentialRampToValueAtTime(0.0001, t + d + 0.7);
-      o.connect(vg); vg.connect(this.sfxBus);
-      o.start(t + d); o.stop(t + d + 0.75);
+      vg.gain.exponentialRampToValueAtTime(0.0001, t + d + 0.9);
+      const send = this.ctx.createGain();
+      send.gain.value = 0.8;
+      o.connect(vg);
+      vg.connect(this.sfxBus);
+      vg.connect(send);
+      send.connect(this.verb);
+      o.start(t + d); o.stop(t + d + 0.95);
     });
+  }
+
+  restart() {
+    if (!this.ready) return;
+    this.silentUntil = 0;
+    this.modeBlend = 1.5;
   }
 }

@@ -98,3 +98,54 @@ export function makeProblem(skill, wave) {
   const a = randInt(lo, hi), b = randInt(2, hi);
   return { a, b, answer: a * b };
 }
+
+// Multiple-choice options for pointer, touch and gamepad play. Distractors are
+// the mistakes a learner actually makes -- off-by-one-group, a transposed digit,
+// the sum instead of the product -- not random numbers, which are easy to
+// eliminate without doing the maths.
+export function makeChoices(beast) {
+  const correct = beast.answerText;
+  const set = new Set([correct]);
+  const n = parseInt(correct, 10);
+
+  if (beast.a != null && beast.b != null && Number.isFinite(n)) {
+    for (const cand of [
+      String(n + beast.a), String(n - beast.a), String(n + beast.b),
+      String(beast.a + beast.b), String(n + 10), String(n - 10),
+    ]) if (cand !== correct && parseInt(cand, 10) > 0) set.add(cand);
+  }
+  if (Number.isFinite(n)) {
+    for (const d of [1, 2, 3, 5]) {
+      if (set.size >= 7) break;
+      if (n - d > 0) set.add(String(n - d));
+      set.add(String(n + d));
+    }
+    // Digit transposition, the classic slip.
+    if (correct.length === 2) {
+      const t = correct[1] + correct[0];
+      if (t !== correct && t[0] !== '0') set.add(t);
+    }
+  }
+  if (correct.includes('/')) {
+    const [p, q] = correct.split('/').map(Number);
+    for (const cand of [`${q - p}/${q}`, `${p}/${q + 1}`, `${p + 1}/${q}`, `${q}/${p}`]) {
+      if (cand !== correct && !cand.startsWith('0')) set.add(cand);
+    }
+  }
+
+  const pool = [...set].filter((v) => v !== correct);
+  // Prefer distractors close to the answer; shuffle the near ones so the same
+  // three don't appear every time.
+  pool.sort((x, y) => Math.abs(parseFloat(x) - parseFloat(correct)) - Math.abs(parseFloat(y) - parseFloat(correct)));
+  const near = pool.slice(0, 5);
+  for (let i = near.length - 1; i > 0; i--) {
+    const j = (Math.random() * (i + 1)) | 0;
+    [near[i], near[j]] = [near[j], near[i]];
+  }
+  const out = [correct, ...near.slice(0, 3)];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = (Math.random() * (i + 1)) | 0;
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}

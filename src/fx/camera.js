@@ -1,6 +1,7 @@
 // Camera, screen shake, and the time-scale system that owns hitstop + slow motion.
 
 import { clamp, damp, rand } from '../util.js';
+import { theme } from '../theme.js';
 
 export class Camera {
   constructor() {
@@ -12,10 +13,18 @@ export class Camera {
     this.timeScale = 1;
   }
 
-  shake(amount) { this.trauma = clamp(this.trauma + amount, 0, 1); }
+  // Reduced motion is applied here rather than at every call site, so no effect
+  // can forget to honour it. Shake is cut to near nothing; hitstop is a freeze
+  // rather than movement, so it is only shortened.
+  shake(amount) {
+    const scaled = theme.reducedMotion ? amount * 0.1 : amount;
+    this.trauma = clamp(this.trauma + scaled, 0, 1);
+  }
 
   // A brief near-freeze on impact. ~60-80ms is most of what "satisfying" means.
-  stop(seconds) { this.hitstop = Math.max(this.hitstop, seconds); }
+  stop(seconds) {
+    this.hitstop = Math.max(this.hitstop, theme.reducedMotion ? seconds * 0.5 : seconds);
+  }
 
   punchIn(zoom, x, y) { this.targetZoom = zoom; this.targetX = x; this.targetY = y; }
   release() { this.targetZoom = 1; this.targetX = 0; this.targetY = 0; }

@@ -2,8 +2,10 @@
 // so the moment of truth happens at the beast, not in a text box.
 
 import { TAU, clamp } from '../util.js';
+import { theme } from '../theme.js';
 
 export class Projectile {
+  // `value` is the raw typed string, so it works for "42" and for "3/4" alike.
   constructor(x, y, target, value, correct) {
     this.x = x; this.y = y;
     this.target = target;
@@ -37,7 +39,7 @@ export class Projectile {
   }
 
   draw(ctx) {
-    const hue = this.correct ? 168 : 24;
+    const hue = this.correct ? theme.orb : theme.hostile + 12;
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
 
@@ -62,7 +64,7 @@ export class Projectile {
     ctx.fillStyle = g;
     ctx.fillRect(this.x - 34, this.y - 34, 68, 68);
 
-    ctx.font = '700 26px "JetBrains Mono", ui-monospace, monospace';
+    ctx.font = `700 ${this.value.length > 3 ? 20 : 26}px "JetBrains Mono", ui-monospace, monospace`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = '#ffffff';
@@ -81,6 +83,7 @@ export class Turret {
   }
 
   update(dt, target) {
+    this.pulse = (this.pulse || 0) + dt;
     if (target) {
       const want = Math.atan2(target.y - this.y, target.x - this.x);
       let d = want - this.angle;
@@ -98,15 +101,31 @@ export class Turret {
     return { x: this.x + Math.cos(this.angle) * len, y: this.y + Math.sin(this.angle) * len };
   }
 
-  draw(ctx, danger) {
+  draw(ctx, danger, charge = 0) {
     ctx.save();
     ctx.translate(this.x, this.y);
+
+    // Overcharge ring: fills as the player answers faster than their own
+    // average, then strobes when the beam is ready.
+    if (charge > 0.001) {
+      const full = charge >= 1;
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.lineWidth = full ? 4 : 3;
+      ctx.strokeStyle = full
+        ? `hsla(48, 100%, ${70 + Math.sin(this.pulse * 12) * 22}%, 0.95)`
+        : `hsla(${theme.friendly + 20}, 100%, 68%, 0.75)`;
+      ctx.beginPath();
+      ctx.arc(0, 0, 26, -Math.PI / 2, -Math.PI / 2 + TAU * Math.min(charge, 1));
+      ctx.stroke();
+      ctx.restore();
+    }
 
     ctx.save();
     ctx.rotate(this.angle);
     const back = -14 + this.recoil * -8;
     ctx.fillStyle = '#13233f';
-    ctx.strokeStyle = `hsla(188, 100%, 66%, 0.85)`;
+    ctx.strokeStyle = `hsla(${theme.friendly}, 100%, 66%, 0.85)`;
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(back, -9);
@@ -120,8 +139,8 @@ export class Turret {
 
     ctx.globalCompositeOperation = 'lighter';
     const g = ctx.createRadialGradient(0, 0, 0, 0, 0, 40);
-    g.addColorStop(0, `hsla(${188 - danger * 60}, 100%, 70%, 0.7)`);
-    g.addColorStop(1, 'hsla(188, 100%, 60%, 0)');
+    g.addColorStop(0, `hsla(${theme.friendly - danger * 60}, 100%, 70%, 0.7)`);
+    g.addColorStop(1, `hsla(${theme.friendly}, 100%, 60%, 0)`);
     ctx.fillStyle = g;
     ctx.fillRect(-40, -40, 80, 80);
 
