@@ -51,6 +51,23 @@ export class Camera {
     return dtReal * this.timeScale;
   }
 
+  // Inverse of apply(): turns a point in canvas space back into world space, so
+  // clicking a beast still selects it while the camera is zoomed or shaking.
+  screenToWorld(px, py, w, h) {
+    let x = px - w / 2;
+    let y = py - h / 2;
+    const cos = Math.cos(-this.shakeRot);
+    const sin = Math.sin(-this.shakeRot);
+    const rx = x * cos - y * sin;
+    const ry = x * sin + y * cos;
+    x = rx / this.zoom;
+    y = ry / this.zoom;
+    return {
+      x: x + w / 2 - this.shakeX + this.x,
+      y: y + h / 2 - this.shakeY + this.y,
+    };
+  }
+
   apply(ctx, w, h) {
     ctx.translate(w / 2, h / 2);
     ctx.rotate(this.shakeRot);

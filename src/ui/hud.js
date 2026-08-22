@@ -167,6 +167,17 @@ export function drawHud(ctx, g, W, H) {
   ctx.fill();
   ctx.restore();
 
+  // Targeting mode readout: switching target is the least discoverable control
+  // in the game, so it gets a permanent line rather than a tooltip.
+  const manual = g.manualTargetId != null;
+  ctx.textAlign = 'center';
+  ctx.font = `500 12px ${MONO}`;
+  ctx.fillStyle = manual ? 'rgba(255,226,150,0.85)' : 'rgba(150,200,235,0.45)';
+  ctx.fillText(
+    manual ? 'TARGET LOCKED — [ ] or click to switch' : 'AUTO-TARGET — [ ] or click to choose',
+    W / 2, ENTRY_Y - 44,
+  );
+
   drawEntry(ctx, g, W, H);
   ctx.restore();
 }
@@ -272,6 +283,17 @@ export function drawFocus(ctx, g, W, H, amount, camera) {
     ctx.fillText(t.promptText, t.x, t.y - t.h / 2 - 14);
     ctx.restore();
   }
+  // Targeting mode readout: switching target is the least discoverable control
+  // in the game, so it gets a permanent line rather than a tooltip.
+  const manual = g.manualTargetId != null;
+  ctx.textAlign = 'center';
+  ctx.font = `500 12px ${MONO}`;
+  ctx.fillStyle = manual ? 'rgba(255,226,150,0.85)' : 'rgba(150,200,235,0.45)';
+  ctx.fillText(
+    manual ? 'TARGET LOCKED — [ ] or click to switch' : 'AUTO-TARGET — [ ] or click to choose',
+    W / 2, ENTRY_Y - 44,
+  );
+
   drawEntry(ctx, g, W, H);
   ctx.restore();
 }
@@ -317,41 +339,145 @@ export function drawTitle(ctx, W, H, t) {
   ctx.textBaseline = 'middle';
 
   const bob = Math.sin(t * 1.6) * 6;
-  ctx.font = `700 96px ${MONO}`;
+  ctx.font = `700 104px ${MONO}`;
   ctx.fillStyle = '#eaf6ff';
   ctx.shadowColor = `hsla(${theme.friendly},100%,60%,0.9)`;
-  ctx.shadowBlur = 40;
-  ctx.fillText('MATHBLAST', W / 2, H / 2 - 150 + bob);
+  ctx.shadowBlur = 44;
+  ctx.fillText('MATHBLAST', W / 2, H / 2 - 96 + bob);
   ctx.shadowBlur = 0;
 
-  ctx.font = `500 20px ${MONO}`;
+  ctx.font = `500 21px ${MONO}`;
   ctx.fillStyle = 'rgba(170,215,245,0.85)';
-  ctx.fillText('The beasts are descending. Solve to stop them.', W / 2, H / 2 - 82);
+  ctx.fillText('The beasts are descending. Solve to stop them.', W / 2, H / 2 - 16);
 
-  const lines = [
-    'TYPE the answer  ·  ENTER fire  ·  SPACE overcharge beam',
-    'Tap or use a gamepad to pick from four answers instead.',
-    '',
-    'Correct answers release orbs that build your shield.',
-    'An intact plate absorbs one landing. Primes refuse to split.',
-  ];
-  ctx.font = `400 16px ${MONO}`;
-  lines.forEach((l, i) => {
-    ctx.fillStyle = 'rgba(150,200,235,0.62)';
-    ctx.fillText(l, W / 2, H / 2 - 30 + i * 25);
-  });
+  const a = 0.55 + Math.sin(t * 4) * 0.45;
+  ctx.font = `700 26px ${MONO}`;
+  ctx.fillStyle = `rgba(255,232,170,${a})`;
+  ctx.fillText('PRESS ENTER TO BEGIN', W / 2, H / 2 + 66);
+
+  ctx.font = `600 17px ${MONO}`;
+  ctx.fillStyle = `hsla(${theme.friendly},90%,72%,0.9)`;
+  ctx.fillText('H — HOW TO PLAY', W / 2, H / 2 + 118);
 
   ctx.font = `400 13px ${MONO}`;
   ctx.fillStyle = 'rgba(140,180,215,0.45)';
   ctx.fillText(
     `C colour-safe ${theme.colorSafe ? 'ON' : 'off'}   ·   R reduced motion ${theme.reducedMotion ? 'ON' : 'off'}   ·   Q quality   ·   M mute`,
-    W / 2, H / 2 + 122,
+    W / 2, H / 2 + 162,
   );
+  ctx.restore();
+}
 
-  const a = 0.55 + Math.sin(t * 4) * 0.45;
-  ctx.font = `700 24px ${MONO}`;
-  ctx.fillStyle = `rgba(255,232,170,${a})`;
-  ctx.fillText('PRESS ENTER TO BEGIN', W / 2, H / 2 + 178);
+// One place for every control and every beast, instead of a growing pile of
+// lines on the title screen. Reachable from the title and mid-game with H.
+const CONTROLS = [
+  ['ANSWERING', null],
+  ['0 – 9', 'type a number'],
+  ['x', 'types × — for factor pairs like 6×8'],
+  ['/', 'fraction bar — 3/8'],
+  ['ENTER', 'fire the answer'],
+  ['BACKSPACE', 'delete a digit   ·   ESC clears'],
+  ['CHOOSING A TARGET', null],
+  ['click / tap', 'aim at that beast'],
+  ['[  and  ]', 'step target left and right'],
+  ['', 'otherwise the turret takes the closest threat'],
+  ['SPECIAL', null],
+  ['SPACE', 'overcharge beam — clears a whole column'],
+  ['TAB', 'switch between typing and four answers'],
+];
+
+const BESTIARY = [
+  ['7 × 8', 'Grid. Count it if you need to. Type the product — 56.'],
+  ['? × ? = 48', 'Boulder. Type one factor (6) or both (6×8).'],
+  ['red boulder', 'Prime — nothing divides it. Type the number itself.'],
+  ['? of 8', 'Crystal with a piece missing. Type it as 3/8.'],
+  ['−6 + ? = 0', 'Voidling. Rises instead of falling. Type 6.'],
+  ['3x + 7 = 22', 'Boss. One step at a time; each step cracks a ring.'],
+];
+
+export function drawHelp(ctx, W, H) {
+  ctx.save();
+  ctx.fillStyle = 'rgba(3,5,14,0.94)';
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.strokeStyle = `hsla(${theme.friendly},80%,60%,0.3)`;
+  ctx.lineWidth = 1.5;
+  roundRect(ctx, 62, 44, W - 124, H - 88, 14);
+  ctx.stroke();
+
+  ctx.textBaseline = 'alphabetic';
+  ctx.textAlign = 'center';
+  ctx.font = `700 30px ${MONO}`;
+  ctx.fillStyle = '#eaf6ff';
+  ctx.shadowColor = `hsla(${theme.friendly},100%,62%,0.8)`;
+  ctx.shadowBlur = 22;
+  ctx.fillText('HOW TO PLAY', W / 2, 98);
+  ctx.shadowBlur = 0;
+
+  // Left column: controls.
+  ctx.textAlign = 'left';
+  let y = 150;
+  for (const [key, desc] of CONTROLS) {
+    if (desc === null) {
+      y += 12;
+      ctx.font = `700 13px ${MONO}`;
+      ctx.fillStyle = `hsla(${theme.friendly},90%,66%,0.9)`;
+      ctx.fillText(key, 108, y);
+      ctx.strokeStyle = `hsla(${theme.friendly},80%,60%,0.22)`;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(108 + ctx.measureText(key).width + 14, y - 4);
+      ctx.lineTo(596, y - 4);
+      ctx.stroke();
+      y += 26;
+      continue;
+    }
+    ctx.font = `700 15px ${MONO}`;
+    ctx.fillStyle = '#e6f3ff';
+    ctx.fillText(key, 116, y);
+    ctx.font = `400 15px ${MONO}`;
+    ctx.fillStyle = 'rgba(160,200,232,0.8)';
+    ctx.fillText(desc, 252, y);
+    y += 25;
+  }
+
+  // Right column: what you are shooting at.
+  y = 150;
+  ctx.font = `700 13px ${MONO}`;
+  ctx.fillStyle = `hsla(${theme.friendly},90%,66%,0.9)`;
+  ctx.fillText('WHAT YOU ARE FIGHTING', 664, y + 12);
+  ctx.strokeStyle = `hsla(${theme.friendly},80%,60%,0.22)`;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(664 + ctx.measureText('WHAT YOU ARE FIGHTING').width + 14, y + 8);
+  ctx.lineTo(W - 108, y + 8);
+  ctx.stroke();
+  y += 46;
+  for (const [label, desc] of BESTIARY) {
+    ctx.font = `700 16px ${MONO}`;
+    ctx.fillStyle = '#ffd9b8';
+    ctx.fillText(label, 672, y);
+    ctx.font = `400 14px ${MONO}`;
+    ctx.fillStyle = 'rgba(160,200,232,0.78)';
+    ctx.fillText(desc, 672, y + 20);
+    y += 48;
+  }
+
+  // The one rule that ties it together.
+  ctx.textAlign = 'center';
+  ctx.font = `500 15px ${MONO}`;
+  ctx.fillStyle = 'rgba(190,225,250,0.9)';
+  ctx.fillText('Every right answer sends orbs into your shield. An intact plate absorbs one landing.',
+               W / 2, H - 106);
+
+  ctx.font = `400 13px ${MONO}`;
+  ctx.fillStyle = 'rgba(140,180,215,0.5)';
+  ctx.fillText('P pause   ·   M mute   ·   Q quality   ·   C colour-safe   ·   R reduced motion',
+               W / 2, H - 82);
+
+  ctx.font = `700 15px ${MONO}`;
+  ctx.fillStyle = 'rgba(255,232,170,0.9)';
+  ctx.fillText('H or ESC to close', W / 2, H - 56);
   ctx.restore();
 }
 

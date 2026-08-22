@@ -124,6 +124,177 @@ async function main() {
   await page.waitForTimeout(600);
   check('a prime dies when it is named', (await state(() => window.game.beasts.filter((b) => b.alive).length)) === 0);
 
+  // --- every beast states its own task ------------------------------------
+  // A bare number is not a question. This is the regression that made boulders
+  // unplayable: they rendered "48" with no prompt, and the only instruction was
+  // HUD text shown for the targeted beast alone.
+  const prompts = await page.evaluate(async () => {
+    const M = await import('/src/entities/beasts/index.js');
+    return {
+      mult: new M.MultBeast(7, 8, 0, 0, 0).promptText,
+      composite: new M.SplitBeast(48, 0, 0, 0).promptText,
+      prime: new M.SplitBeast(17, 0, 0, 0).promptText,
+      voidling: new M.Voidling(6, 0, 0, 0).promptText,
+      boss: new M.BossBeast(3, 7, 5, 0, 0, 0).promptText,
+      fraction: new M.FractionBeast(3, 8, 0, 0, 0).promptText,
+    };
+  });
+  check('every beast type states a task, not just a number',
+        Object.values(prompts).every((p) => /[?=×]/.test(p) && !/^\d+$/.test(p)));
+  check('boulders ask for a factor in words the rock shows itself',
+        prompts.composite === '? × ? = 48' && prompts.prime === '? × ? = 17');
+
+  // --- the lattice actually renders every cell ------------------------------
+  // Regression: batching the cells into four fills for performance used a
+  // roundRect helper that called beginPath(), so each cell discarded the
+  // previous one and only four cells per beast were ever drawn. Logic tests
+  // cannot see this -- it has to be counted in pixels.
+  const lattice = await page.evaluate(async () => {
+    const M = await import('/src/entities/beasts/index.js');
+    const g = window.game;
+    const count = (a, b) => {
+      g.beasts.length = 0; g.waveRemaining = 0; g.spawnTimer = 999; g.waveBanner = 0;
+      g.shockwaves.clear(); g.orbs.clear(); g.particles.clear();
+      const beast = new M.MultBeast(a, b, 640, 300, 0);
+      g.beasts.push(beast);
+      g.draw();
+      const PITCH = 15, CELL = 12;
+      const x0 = beast.x - beast.w / 2, y0 = beast.y - beast.h / 2;
+      // Calibrate against the dark shell just outside the grid.
+      const bg = g.ctx.getImageData(Math.round(x0 - 5), Math.round(y0 - 5), 1, 1).data;
+      const floor = bg[0] + bg[1] + bg[2] + 90;
+      let lit = 0;
+      for (let j = 0; j < b; j++) {
+        for (let i = 0; i < a; i++) {
+          const d = g.ctx.getImageData(Math.round(x0 + i * PITCH + CELL / 2),
+                                       Math.round(y0 + j * PITCH + CELL / 2), 1, 1).data;
+          if (d[0] + d[1] + d[2] > floor) lit++;
+        }
+      }
+      return { expected: a * b, lit };
+    };
+    return { small: count(3, 3), mid: count(6, 7), big: count(12, 12) };
+  });
+  check('every lattice cell is drawn, not one per colour bucket',
+        lattice.small.lit === 9 && lattice.mid.lit === 42 && lattice.big.lit === 144);
+
+  // --- choosing which beast to solve ----------------------------------------
+  await page.evaluate(async () => {
+    const M = await import('/src/entities/beasts/index.js');
+    const g = window.game;
+    g.beasts.length = 0; g.shots.length = 0; g.targetBeast = null; g.manualTargetId = null;
+    g.waveRemaining = 0; g.spawnTimer = 999;
+    g.beasts.push(new M.MultBeast(6, 7, 260, 140, 0));
+    g.beasts.push(new M.SplitBeast(48, 620, 250, 0));
+    g.beasts.push(new M.MultBeast(9, 4, 880, 380, 0));
+  });
+  await page.waitForTimeout(350);
+  const tAuto = await state(() => ({ x: Math.round(window.game.targetBeast.x),
+                                     manual: window.game.manualTargetId != null }));
+  check('auto-target picks the most dangerous beast', tAuto.x > 800 && !tAuto.manual);
+
+  await page.keyboard.press('BracketLeft');
+  await page.waitForTimeout(150);
+  const tLeft = await state(() => ({ x: Math.round(window.game.targetBeast.x),
+                                     manual: window.game.manualTargetId != null }));
+  check('[ steps the target left and locks it', tLeft.x < 700 && tLeft.manual);
+
+  await page.waitForTimeout(900);
+  const tHeld = await state(() => Math.round(window.game.targetBeast.x));
+  check('a manual target is not stolen back by auto-targeting',
+        Math.abs(tHeld - tLeft.x) < 40);
+
+  await page.keyboard.press('BracketRight');
+  await page.waitForTimeout(150);
+  check('] steps the target back right',
+        (await state(() => Math.round(window.game.targetBeast.x))) > 800 ||
+        (await state(() => Math.round(window.game.targetBeast.x))) < 400);
+
+  // Firing releases the lock so the turret resumes defending.
+  await page.evaluate(() => { window.game.input = ''; });
+  await type(await state(() => window.game.targetBeast.answerText));
+  await page.waitForTimeout(900);
+  check('firing releases the manual lock back to auto',
+        (await state(() => window.game.manualTargetId)) === null);
+
+  // The click-to-target inverse must survive a zoomed, shaken camera.
+  const inv = await state(() => {
+    const g = window.game, w = 1280, h = 720, c = g.camera;
+    c.zoom = 1.14; c.shakeX = 7; c.shakeY = -4; c.shakeRot = 0.02;
+    const pt = { x: 421, y: 233 };
+    const cos = Math.cos(c.shakeRot), sin = Math.sin(c.shakeRot);
+    let x = (pt.x - w / 2 + c.shakeX - c.x) * c.zoom;
+    let y = (pt.y - h / 2 + c.shakeY - c.y) * c.zoom;
+    const back = c.screenToWorld(x * cos - y * sin + w / 2, x * sin + y * cos + h / 2, w, h);
+    c.zoom = 1; c.shakeX = 0; c.shakeY = 0; c.shakeRot = 0;
+    return Math.max(Math.abs(back.x - pt.x), Math.abs(back.y - pt.y));
+  });
+  check('click-to-target maps correctly under zoom and shake', inv < 0.01);
+
+  // --- discovering a prime is free -----------------------------------------
+  await only('new M.SplitBeast(17, 560, 260, 0)');
+  await waitTarget();
+  const preP = await state(() => {
+    const g = window.game;
+    g.combo = 6;
+    return { combo: g.combo, intact: g.shield.intact, attempts: g.attempts };
+  });
+  await type('4');
+  await page.waitForTimeout(700);
+  const postP = await state(() => {
+    const g = window.game;
+    const b = g.beasts.find((x) => x.alive);
+    return { combo: g.combo, intact: g.shield.intact, attempts: g.attempts,
+             revealed: Boolean(b && b.revealed), prompt: b && b.promptText };
+  });
+  check('factoring a prime costs nothing and reveals it',
+        postP.combo === preP.combo && postP.intact === preP.intact &&
+        postP.attempts === preP.attempts && postP.revealed &&
+        postP.prompt === '17 is PRIME');
+  await type('17');
+  await page.waitForTimeout(600);
+  check('a revealed prime still dies when named',
+        (await state(() => window.game.beasts.filter((b) => b.alive).length)) === 0);
+
+  // --- a boulder accepts what its label asks for ----------------------------
+  // The rock reads "? × ? = 48", so both halves of that question have to work:
+  // one factor, or the pair. A pair is judged on its product.
+  const ans = await page.evaluate(async () => {
+    const M = await import('/src/entities/beasts/index.js');
+    const b = new M.SplitBeast(48, 0, 0, 0);
+    const pr = new M.SplitBeast(17, 0, 0, 0);
+    const mu = new M.MultBeast(7, 8, 0, 0, 0);
+    return {
+      one: b.accepts('12') && b.accepts('4') && b.accepts('6'),
+      pair: b.accepts('12×4') && b.accepts('4×12') && b.accepts('6×8'),
+      badPair: b.accepts('12×9') || b.accepts('1×48') || b.accepts('7×7'),
+      badOne: b.accepts('5') || b.accepts('1') || b.accepts('48'),
+      primePair: pr.accepts('4×5'),
+      primeNamed: pr.accepts('17'),
+      // parseInt("56×1") is 56, which used to pass as the product of 7x8.
+      looseParse: mu.accepts('56×1') || mu.accepts('56x'),
+      exact: mu.accepts('56'),
+    };
+  });
+  check('a boulder takes one factor or the whole pair', ans.one && ans.pair);
+  check('a wrong pair is rejected on its product', !ans.badPair && !ans.badOne);
+  check('a prime takes no pair, only its own name', !ans.primePair && ans.primeNamed);
+  check('trailing junk no longer parses as a right answer', !ans.looseParse && ans.exact);
+
+  // Typing the pair through the keyboard, x for the sign.
+  await only('new M.SplitBeast(48, 620, 250, 0)');
+  await waitTarget();
+  await page.evaluate(() => { window.game.input = ''; });
+  for (const k of ['1', '2', 'x', '4']) await page.keyboard.press(k);
+  check('x types the multiplication sign',
+        (await state(() => window.game.input)) === '12×4');
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(900);
+  const pairKids = await state(() =>
+    window.game.beasts.filter((b) => b.alive).map((b) => b.n).sort((a, b) => a - b));
+  check('a pair answer splits the rock into exactly those two factors',
+        JSON.stringify(pairKids) === '[4,12]');
+
   // --- fractions ----------------------------------------------------------
   await only('new M.FractionBeast(2, 8, 640, 230, 0)');
   await waitTarget();
@@ -276,6 +447,32 @@ async function main() {
   check('firing a chosen answer resolves the beast',
         (await state(() => window.game.beasts.filter((b) => b.alive).length)) === 0);
   await page.keyboard.press('Tab');
+
+  // --- the instructions screen ---------------------------------------------
+  await page.keyboard.press('h');
+  await page.waitForTimeout(200);
+  check('H opens the instructions', await state(() => window.game.help));
+
+  const frozen = await page.evaluate(() => new Promise((res) => {
+    const g = window.game;
+    const t0 = g.time;
+    const y0 = g.beasts[0] ? g.beasts[0].y : null;
+    setTimeout(() => res({
+      dt: +(g.time - t0).toFixed(3),
+      dy: y0 === null ? 0 : +(g.beasts[0] ? g.beasts[0].y - y0 : 0).toFixed(2),
+    }), 700);
+  }));
+  check('the game holds still while the instructions are open',
+        frozen.dt === 0 && frozen.dy === 0);
+
+  await page.keyboard.press('7');
+  await page.keyboard.press('7');
+  check('keys do not leak into the answer box behind the instructions',
+        (await state(() => window.game.input)) === '');
+
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
+  check('ESC closes the instructions', !(await state(() => window.game.help)));
 
   // --- game over and restart ---------------------------------------------
   await page.evaluate(() => { window.game.cores = 1; });

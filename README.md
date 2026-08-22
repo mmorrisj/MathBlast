@@ -27,16 +27,24 @@ npm test           # browser-driven suite (needs Playwright; skips cleanly witho
 Any static server works. It must be served over HTTP rather than opened as a
 `file://` URL, because the code uses ES modules.
 
+![How to play](docs/how-to-play.png)
+
 ### Controls
 
 | Key | Action |
 | --- | --- |
-| `0`–`9`, `/` | Type the answer (`/` for fractions, e.g. `3/4`) |
+| `0`–`9`, `/`, `x` | Type the answer (`/` for fractions like `3/4`; `x` types `×` for factor pairs like `6×8`) |
 | `Enter` | Fire &nbsp;·&nbsp; `Backspace` delete &nbsp;·&nbsp; `Esc` clear |
+| `[` `]` or click | Choose which beast to solve; otherwise the turret auto-targets the most dangerous one |
 | `Space` | Overcharge beam, once charged |
 | `Tab` | Switch between typing and picking from four answers |
 | `C` / `R` | Colour-safe palette / reduced motion |
+| `H` | How to play — every control and beast in one screen, from the title or mid-game |
 | `P` / `M` / `Q` | Pause / mute / graphics quality (also `?q=low\|medium\|high`) |
+
+Targeting is automatic until you override it. Click or tap a beast, press `[`
+and `]`, or use the gamepad shoulder buttons to aim somewhere else; the lock
+holds until that beast is solved, then the turret resumes defending on its own.
 
 Touch and gamepad auto-switch to the four-answer layout: tap an orb, or use
 d-pad + A, with B or RT for the beam.
@@ -46,7 +54,7 @@ d-pad + A, with B or RT for the beam.
 | | |
 | --- | --- |
 | **Multiplication lattice** | `a × b` as a countable grid. Solving runs a diagonal collapse wave through it, so the kill animation is a picture of the array being consumed. |
-| **Splitting asteroid** | Hit a composite with any proper factor and it fractures into two proportionally sized rocks. Composites show fracture seams; primes show an unbreakable crystalline core and must be named. |
+| **Splitting asteroid** | Labelled `? × ? = 48`, and it accepts either half of that question: one factor (`6`) or the whole pair (`6×8`). A pair is judged on its product, so `12×9` is wrong for 48 even though `12` alone would be right. Hit a composite and it fractures into two proportionally sized rocks. Composites show fracture seams; primes show an unbreakable crystalline core. Trying to factor a prime costs nothing — the rock reveals itself as `17 is PRIME` and you name it instead. |
 | **Fraction crystal** | A shell with a wedge missing, faceted at every `1/q` so the denominator is countable. Any equivalent fraction is accepted — `2/8` and `1/4` cut the same hole, and the player discovers that rather than being told. |
 | **Voidling** | A negative. Rises instead of falling, drawn as a hole rather than an object. Fire its additive inverse to annihilate it; let it escape off the top and it takes shield energy with it. |
 | **Boss equation** | `3x + 7 = 22`, cracked one step at a time: isolate, solve, verify. Each step shatters one of three armour rings, so the algebra and the armour come apart together. |
@@ -193,6 +201,17 @@ quality manager and the `?q=` override are the mitigation.
 ## Testing
 
 `npm test` drives the real game in headless Chromium and asserts on live state —
-27 checks covering the impact pipeline, magnitude scaling, every beast type,
+48 checks covering the impact pipeline, magnitude scaling, every beast type,
 overcharge, landings, the adaptive music, both accessibility modes, both input
 modes, game over and restart, plus an end-to-end run to wave 7.
+
+Two of them exist because of real failures the logic tests could not see:
+
+- Boulders originally rendered a bare `48` with no question anywhere near them,
+  and the only instruction was HUD text shown for the targeted beast alone. The
+  suite now asserts that no beast renders its prompt as just a number.
+- Batching lattice cells into four fills for performance used a `roundRect`
+  helper that called `beginPath()`, so each cell discarded the previous one and
+  only four cells per beast were ever drawn. The suite now samples the canvas
+  and counts lit cells, which is the only way to catch a rendering bug of that
+  shape.

@@ -5,7 +5,7 @@
 // You neutralise one by firing its additive inverse. Let it escape off the top
 // and it takes a shield plate with it, so a negative left alone subtracts.
 
-import { TAU, rand, clamp, easeOutCubic } from '../../util.js';
+import { TAU, rand, clamp, easeOutCubic , toInt } from '../../util.js';
 import { theme } from '../../theme.js';
 import { Beast } from './base.js';
 
@@ -22,10 +22,13 @@ export class Voidling extends Beast {
   }
 
   get magnitude() { return this.value * 2.5; }
-  get promptText() { return `−${this.value}`; }
-  get hintText() { return `−${this.value} + ? = 0`; }
+  // Stated above the orb, so the task is readable whether or not it is the
+  // current target.
+  get promptText() { return `−${this.value} + ? = 0`; }
+  get hintText() { return `−${this.value} + ? =`; }
+  get faceText() { return `−${this.value}`; }
   get answerText() { return String(this.value); }
-  accepts(raw) { return parseInt(raw, 10) === this.value; }
+  accepts(raw) { return toInt(raw) === this.value; }
 
   emitCollapse(particles, prevT) {
     if (this.state !== 'dying' || prevT > 0) return;
@@ -91,9 +94,10 @@ export class Voidling extends Beast {
     ctx.shadowColor = `hsla(${this.hue}, 100%, 70%, 0.95)`;
     ctx.shadowBlur = 18;
     ctx.fillStyle = '#eadcff';
-    ctx.fillText(this.promptText, this.x, this.y + 1);
+    ctx.fillText(this.faceText, this.x, this.y + 1);
     ctx.restore();
 
+    if (!dying) this.drawLabel(ctx, this.promptText, 22);
     ctx.restore();
   }
 

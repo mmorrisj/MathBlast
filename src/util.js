@@ -25,14 +25,20 @@ export function easeOutElastic(t) {
   return Math.pow(2, -10 * t) * Math.sin((t * 10 - 0.75) * c) + 1;
 }
 
+// Starts a new path. For adding many rects to one path, use addRoundRect --
+// calling this in a loop silently discards every rect but the last.
 export function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  addRoundRect(ctx, x, y, w, h, r);
+}
+
+// Appends to the current path without resetting it.
+export function addRoundRect(ctx, x, y, w, h, r) {
   if (ctx.roundRect) {
-    ctx.beginPath();
     ctx.roundRect(x, y, w, h, r);
     return;
   }
   const rr = Math.min(r, w / 2, h / 2);
-  ctx.beginPath();
   ctx.moveTo(x + rr, y);
   ctx.arcTo(x + w, y, x + w, y + h, rr);
   ctx.arcTo(x + w, y + h, x, y + h, rr);
@@ -73,3 +79,16 @@ export function properFactors(n) {
 }
 
 export const gcd = (a, b) => (b === 0 ? Math.abs(a) : gcd(b, a % b));
+
+// Strict integer parse. parseInt() stops at the first non-digit, so
+// parseInt("12x9") is 12 -- which silently accepts a wrong answer as a right
+// one. Anything that is not purely digits returns null here.
+export function toInt(raw) {
+  return /^\d+$/.test(String(raw).trim()) ? parseInt(raw, 10) : null;
+}
+
+// "12×4" -> [12, 4]. Accepts x and * as well as the multiplication sign.
+export function parsePair(raw) {
+  const m = /^(\d+)\s*[×x*]\s*(\d+)$/.exec(String(raw).trim());
+  return m ? [parseInt(m[1], 10), parseInt(m[2], 10)] : null;
+}

@@ -16,7 +16,7 @@ import { Starfield } from './render/starfield.js';
 import { Shield, CX } from './entities/shield.js';
 import { Projectile, Turret } from './entities/projectile.js';
 import { makeBeast, makeBoss, isBossWave, SplitBeast } from './entities/beasts/index.js';
-import { drawHud, drawTitle, drawGameOver, drawFocus, drawInterlude, choiceHitTest } from './ui/hud.js';
+import { drawHud, drawTitle, drawGameOver, drawFocus, drawInterlude, drawHelp, choiceHitTest } from './ui/hud.js';
 import { Quality } from './quality.js';
 
 const W = 1280;
@@ -45,6 +45,7 @@ class Game {
     this.time = 0;
     this.stateTime = 0;
     this.paused = false;
+    this.help = false;
     this.danger = 0;
     this.inputMode = 'type';
     this.choices = [];
@@ -91,6 +92,7 @@ class Game {
     this.spawnTimer = 0;
     this.waveRemaining = 0;
     this.targetBeast = null;
+    this.manualTargetId = null;    // set when the player picks a beast themselves
     this.choices = [];
 
     setColorSafe(theme.colorSafe);
@@ -106,6 +108,13 @@ class Game {
   _bindInput() {
     window.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' || e.key === ' ' || e.key.startsWith('Arrow')) e.preventDefault();
+
+      // Instructions are reachable from anywhere, and swallow other keys while open.
+      if (e.key === 'h' || e.key === 'H') { this.help = !this.help; return; }
+      if (this.help) {
+        if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') this.help = false;
+        return;
+      }
 
       if (this.state === 'title') {
         if (e.key === 'Enter' || e.key === ' ') this._begin();
@@ -128,6 +137,13 @@ class Game {
 
       if (e.key === ' ') { this._fireBeam(); return; }
 
+      // [ and ] switch target in either mode; the arrows do it too when they
+      // are not already busy picking an answer.
+      if (e.key === '[') { this._cycleTarget(-1); return; }
+      if (e.key === ']') { this._cycleTarget(1); return; }
+      if (e.key === 'ArrowUp') { this._cycleTarget(-1); return; }
+      if (e.key === 'ArrowDown') { this._cycleTarget(1); return; }
+
       if (this.inputMode === 'choose') {
         if (e.key === 'ArrowLeft') this.choiceIndex = (this.choiceIndex + 3) % 4;
         else if (e.key === 'ArrowRight') this.choiceIndex = (this.choiceIndex + 1) % 4;
@@ -135,8 +151,17 @@ class Game {
         return;
       }
 
-      if ((e.key >= '0' && e.key <= '9') || e.key === '/') {
-        if (this.input.length < 5) { this.input += e.key; this.inputPulse = 1; }
+      if (e.key === 'ArrowLeft') { this._cycleTarget(-1); return; }
+      if (e.key === 'ArrowRight') { this._cycleTarget(1); return; }
+
+      // x and * both enter the multiplication sign, so a boulder's "? × ?"
+      // question can actually be answered as a pair.
+      const mult = e.key === 'x' || e.key === 'X' || e.key === '*';
+      if ((e.key >= '0' && e.key <= '9') || e.key === '/' || mult) {
+        if (this.input.length < 7) {
+          this.input += mult ? '×' : e.key;
+          this.inputPulse = 1;
+        }
       } else if (e.key === 'Backspace') {
         this.input = this.input.slice(0, -1); this.inputPulse = 1;
       } else if (e.key === 'Escape') {
@@ -148,6 +173,7 @@ class Game {
 
     const pointer = (ev) => {
       this.audio.resume();
+      if (this.help) { this.help = false; return; }
       if (this.state === 'title') { this._begin(); return; }
       if (this.state === 'gameover') { this._begin(); return; }
       const rect = this.display.getBoundingClientRect();
@@ -155,8 +181,10 @@ class Game {
       const py = ((ev.clientY - rect.top) / rect.height) * H;
       if (this.inputMode === 'choose') {
         const hit = choiceHitTest(px, py, this.choices);
-        if (hit >= 0) { this.choiceIndex = hit; this._fire(this.choices[hit]); }
+        if (hit >= 0) { this.choiceIndex = hit; this._fire(this.choices[hit]); return; }
       }
+      // Anywhere else on the field: take aim at whatever was clicked.
+      this._pickTargetAt(px, py);
     };
     window.addEventListener('pointerdown', pointer);
     // Touch implies no keyboard: switch to the pick-an-answer layout.
@@ -184,8 +212,8 @@ class Game {
     const hint = document.getElementById('hint');
     if (hint) {
       hint.textContent = mode === 'choose'
-        ? 'TAP or ◀ ▶ to pick  ·  ENTER fire  ·  SPACE overcharge  ·  TAB type instead'
-        : '0-9 and / answer  ·  ENTER fire  ·  SPACE overcharge  ·  TAB pick instead  ·  P pause  ·  M mute';
+        ? 'TAP or ◀ ▶ pick answer  ·  [ ] or click switch target  ·  ENTER fire  ·  SPACE overcharge  ·  TAB type'
+        : '0-9 and / answer  ·  ENTER fire  ·  [ ] or click switch target  ·  SPACE overcharge  ·  TAB pick  ·  P pause';
     }
   }
 
@@ -206,6 +234,13 @@ class Game {
       const right = gp.buttons[15]?.pressed || ax > 0.6;
       const fire = gp.buttons[0]?.pressed;
       const beam = gp.buttons[1]?.pressed || gp.buttons[7]?.pressed;
+      const prev = gp.buttons[4]?.pressed;
+      const next = gp.buttons[5]?.pressed;
+      if (this.state === 'playing') {
+        if (prev && !this._gpPrev) this._cycleTarget(-1);
+        if (next && !this._gpNext) this._cycleTarget(1);
+      }
+      this._gpPrev = prev; this._gpNext = next;
       if (this.state !== 'playing') {
         if (fire && !this._gpFire) this._begin();
       } else if (this.inputMode === 'choose') {
@@ -219,17 +254,57 @@ class Game {
     }
   }
 
+  // Step through the beasts left-to-right on screen.
+  _cycleTarget(dir) {
+    const list = this.beasts
+      .filter((b) => b.alive && !b.locked)
+      .sort((a, b) => a.x - b.x);
+    if (list.length < 2) return;
+    const i = list.indexOf(this.targetBeast);
+    const next = list[((i < 0 ? 0 : i + dir) % list.length + list.length) % list.length];
+    this._selectTarget(next);
+  }
+
+  // Click or tap a beast to take aim at it.
+  _pickTargetAt(px, py) {
+    const p = this.camera.screenToWorld(px, py, W, H);
+    let best = null, bd = Infinity;
+    for (const b of this.beasts) {
+      if (!b.alive || b.locked) continue;
+      const reach = Math.max(b.w, b.h) / 2 + 34;
+      const d = Math.hypot(b.x - p.x, b.y - p.y);
+      if (d < reach && d < bd) { bd = d; best = b; }
+    }
+    if (best) { this._selectTarget(best); return true; }
+    return false;
+  }
+
+  _selectTarget(b) {
+    if (!b || b === this.targetBeast) return;
+    this.manualTargetId = b.id;
+    this.targetBeast = b;
+    this.input = '';
+    this.inputPulse = 1;
+    this._refreshChoices();
+    this.audio.fire(b.x);
+  }
+
   _fire(raw) {
     const t = this.targetBeast;
     if (!t || !raw) return;
     const correct = t.accepts(raw);
     const elapsed = performance.now() / 1000 - t.bornAt;
 
+    // A first attempt to factor a prime is a lesson, not a mistake -- keep it
+    // out of accuracy, the skill table and the mode shift.
+    const freebie = !correct && t.prime && !t.revealed;
     if (t.a != null && t.b != null) this.skill.record(t.a, t.b, elapsed, correct);
-    this.attempts++;
-    if (correct) this.solved++;
-    this.rollingAcc = this.rollingAcc * 0.82 + (correct ? 1 : 0) * 0.18;
-    this.audio.setAccuracy(this.rollingAcc);
+    if (!freebie) {
+      this.attempts++;
+      if (correct) this.solved++;
+      this.rollingAcc = this.rollingAcc * 0.82 + (correct ? 1 : 0) * 0.18;
+      this.audio.setAccuracy(this.rollingAcc);
+    }
 
     t.locked = true;
     t.pendingRaw = raw;
@@ -391,6 +466,19 @@ class Game {
         this.camera.shake(0.4);
         b.locked = false;
       }
+    } else if (b.prime && !b.revealed) {
+      // Discovering that a rock is prime should not cost anything. The first
+      // attempt to factor one teaches instead of punishing: the rock reveals
+      // itself, and the combo and shield are left alone.
+      b.revealed = true;
+      b.locked = false;
+      b.hitFlash = 1;
+      this.audio.charged();
+      this.camera.shake(0.14);
+      this.shockwaves.spawn(b.x, b.y, 0.45, { hue: 352, rings: 2, radius: 130 });
+      this.particles.burst(b.x, b.y, 22, {
+        hue: 352, speed: 260, life: 0.7, size: 3.6, stretch: 0.8,
+      });
     } else {
       b.locked = false;
       b.repel();
@@ -503,12 +591,23 @@ class Game {
     }
     this.beasts = this.beasts.filter((b) => !b.gone);
 
+    // A beast the player picked themselves holds the turret until it dies or is
+    // fired at; otherwise the turret falls back to whatever is most dangerous.
     let target = null;
-    for (const b of this.beasts) {
-      if (!b.alive || b.locked) continue;
-      // Bosses always take priority; otherwise the closest to doing damage.
-      const score = (b.isBoss ? 1000 : 0) + b.progress(this.shield);
-      if (!target || score > target._score) { target = b; target._score = score; }
+    if (this.manualTargetId != null) {
+      const held = this.beasts.find(
+        (b) => b.id === this.manualTargetId && b.alive && !b.locked,
+      );
+      if (held) target = held;
+      else this.manualTargetId = null;
+    }
+    if (!target) {
+      for (const b of this.beasts) {
+        if (!b.alive || b.locked) continue;
+        // Bosses always take priority; otherwise the closest to doing damage.
+        const score = (b.isBoss ? 1000 : 0) + b.progress(this.shield);
+        if (!target || score > target._score) { target = b; target._score = score; }
+      }
     }
     if (target !== this.targetBeast) {
       this.targetBeast = target;
@@ -613,8 +712,14 @@ class Game {
         drawInterlude(this.out, this, W, H, 1 - this.phaseTimer / INTERLUDE);
       }
     }
-    if (this.state === 'title') drawTitle(this.out, W, H, this.time);
-    if (this.state === 'gameover') drawGameOver(this.out, this, W, H, this.stateTime);
+    // Instructions replace the title/game-over overlay rather than stacking on
+    // top of it -- a 94%-opaque scrim still lets big glowing text read through.
+    if (this.help) {
+      drawHelp(this.out, W, H);
+    } else {
+      if (this.state === 'title') drawTitle(this.out, W, H, this.time);
+      if (this.state === 'gameover') drawGameOver(this.out, this, W, H, this.stateTime);
+    }
     if (this.paused) {
       this.out.save();
       this.out.fillStyle = 'rgba(4,6,16,0.7)';
@@ -658,7 +763,7 @@ function frame(now) {
   const dt = Math.min(raw / 1000, 1 / 30);
   last = now;
   game.quality.sample(raw);
-  if (!game.paused) game.update(dt);
+  if (!game.paused && !game.help) game.update(dt);
   game.draw();
   requestAnimationFrame(frame);
 }

@@ -6,7 +6,7 @@
 // to destroy one is to name it: type the number itself. Nobody has to be told
 // what a prime is; the rock teaches it by being unbreakable.
 
-import { TAU, rand, clamp, isPrime, properFactors, easeOutCubic } from '../../util.js';
+import { TAU, rand, clamp, isPrime, properFactors, easeOutCubic, toInt, parsePair } from '../../util.js';
 import { theme } from '../../theme.js';
 import { Beast } from './base.js';
 
@@ -17,6 +17,7 @@ export class SplitBeast extends Beast {
     super(x, y, speed);
     this.n = n;
     this.prime = isPrime(n);
+    this.revealed = false;      // set once a player has tried to factor a prime
     this.r = radiusFor(n);
     this.w = this.r * 2;
     this.h = this.r * 2;
@@ -34,9 +35,18 @@ export class SplitBeast extends Beast {
   }
 
   get magnitude() { return this.n; }
-  get promptText() { return String(this.n); }
+
+  // The bare number is not a question. Every rock states its own task above it,
+  // so a player can read what to do without hunting for the HUD -- and so
+  // non-targeted rocks are legible too.
+  get promptText() {
+    if (this.prime && this.revealed) return `${this.n} is PRIME`;
+    return `? × ? = ${this.n}`;
+  }
+
   get hintText() {
-    return this.prime ? `${this.n} is prime — name it:` : `factor of ${this.n}:`;
+    if (this.prime && this.revealed) return `no factors — type ${this.n}:`;
+    return `one factor of ${this.n}, or both =`;
   }
   get answerText() {
     if (this.prime) return String(this.n);
@@ -44,9 +54,18 @@ export class SplitBeast extends Beast {
     return String(f[Math.floor(f.length / 2)]);
   }
 
+  // The rock asks "? × ? = 48", so both halves of that are valid answers: a
+  // single factor, or the whole pair. A pair is checked on its product, so
+  // 12×9 is wrong for 48 even though 12 on its own would have been right.
   accepts(raw) {
-    const v = parseInt(raw, 10);
-    if (!Number.isFinite(v)) return false;
+    const pair = parsePair(raw);
+    if (pair) {
+      if (this.prime) return false;      // no pair above 1 multiplies to a prime
+      const [a, b] = pair;
+      return a > 1 && b > 1 && a * b === this.n;
+    }
+    const v = toInt(raw);
+    if (v == null) return false;
     if (this.prime) return v === this.n;
     return v > 1 && v < this.n && this.n % v === 0;
   }
@@ -55,7 +74,8 @@ export class SplitBeast extends Beast {
   // `children` and adds them to the field.
   resolve(raw) {
     if (this.prime) { this.kill(); return true; }
-    const f = parseInt(raw, 10);
+    const pair = parsePair(raw);
+    const f = pair ? pair[0] : toInt(raw);
     const g = this.n / f;
     this.children = [f, g].filter((v) => v > 1);
     this.kill();
@@ -137,6 +157,8 @@ export class SplitBeast extends Beast {
       }
     }
     ctx.restore();
+
+    if (!dying) this.drawLabel(ctx, this.promptText, 24);
 
     // The number, carved into the rock.
     ctx.save();
