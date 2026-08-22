@@ -48,6 +48,52 @@ const HOOKS = [
   [7, null, 5, 4, 7, null, 9, 7, 5, null, 4, 2, 0, 2, 4, null],
 ];
 
+// Drum patterns, one per sector. Sixteen characters, one a sixteenth: '.' is a
+// rest, '1'-'9' a velocity. A single loop repeated forever is what makes a
+// drum machine sound like a metronome, so the kit thickens by sector and the
+// last bar of every four is replaced by a fill.
+const KITS = [
+  { // BLUE DRIFT -- half-time and mostly air
+    kick:  '8.......6.......',
+    snare: '....7.......7...',
+    hat:   '5...4...5...4...',
+    open:  '................',
+  },
+  { // VIOLET REACH -- eighths on the hats, a kick pushing into the next bar
+    kick:  '9.......6.....5.',
+    snare: '....8.......8..2',
+    hat:   '6.4.5.4.6.4.5.4.',
+    open:  '..............7.',
+  },
+  { // EMBER FIELD -- the kick syncopates, ghost snares fill the gaps
+    kick:  '9..5....7..4..6.',
+    snare: '..2.8..3....8.4.',
+    hat:   '6434643464346434',
+    open:  '..............7.',
+  },
+  { // CRIMSON DEEP -- sixteenth hats, kick under everything
+    kick:  '9..57.6.7.5.7.6.',
+    snare: '..38..3.2.38..4.',
+    hat:   '7435743574357435',
+    open:  '......7.......7.',
+  },
+];
+
+// The last bar of each four. Toms descend into the downbeat that follows, so
+// the phrase has somewhere to arrive.
+const FILLS = [
+  null,
+  { snare: '....8.....6.7.8.', tom: '...............9' },
+  { snare: '..2.8...6.7.8...', tom: '.............899' },
+  { snare: '..38..3.6.7.....', tom: '............7899' },
+];
+
+// '.' is silence, '1'-'9' map to 0.11..1.
+const vel = (pat, i) => {
+  const c = pat.charCodeAt(i);
+  return c === 46 ? 0 : (c - 48) / 9;
+};
+
 const semiToRatio = (s) => Math.pow(2, s / 12);
 
 export class Audio {
@@ -109,6 +155,20 @@ export class Audio {
     this.comp.connect(this.master);
     this.master.connect(ctx.destination);
 
+    // Soft saturation on the drums. Clean synthesised hits sound like beeps;
+    // a little drive is most of what makes them read as drums.
+    this.drumShaper = ctx.createWaveShaper();
+    this.drumShaper.curve = (() => {
+      const n = 1024;
+      const c = new Float32Array(n);
+      for (let i = 0; i < n; i++) {
+        const x = (i / (n - 1)) * 2 - 1;
+        c[i] = Math.tanh(x * 2.4) / Math.tanh(2.4);
+      }
+      return c;
+    })();
+    this.drumShaper.oversample = '2x';
+
     // Sidechain pump: the kick ducks everything melodic and it swells back.
     // This is most of what makes a driving track feel driving.
     this.pump = ctx.createGain();
@@ -122,6 +182,7 @@ export class Audio {
       g.connect(name === 'drums' ? this.musicBus : this.pump);
       this.layerGain[name] = g;
     }
+    this.drumShaper.connect(this.layerGain.drums);
     this.pumpAmount = 0;
     // The pad is the layer that most benefits from space.
     this.padSend = ctx.createGain();
@@ -221,7 +282,11 @@ export class Audio {
       pad: 0.5 * hold,
       bass: clamp((this.danger - 0.12) / 0.3, 0, 1) * 0.55 * hold,
       arp: clamp((this.danger - 0.42) / 0.3, 0, 1) * 0.34 * hold,
-      drums: clamp((this.danger - 0.62) / 0.28, 0, 1) * 0.5 * hold,
+      // The drums used to wait for danger > 0.62 in every sector, so most of
+      // a run had no percussion at all. Each sector brings them in earlier;
+      // by CRIMSON DEEP the kit is simply always there.
+      drums: clamp((this.danger - (0.62 - this.band * 0.17)) / 0.28, 0, 1)
+             * (0.42 + this.band * 0.06) * hold,
       lead: this.band >= 1
         ? clamp((this.danger - 0.3) / 0.35, 0, 1) * (0.16 + this.band * 0.05) * hold
         : 0,
@@ -285,7 +350,7 @@ export class Audio {
     if (this.band >= 1 && (s === 3 || s === 11)) this._bass(root, time, -1);
     if (s % 2 === 0) this._arp(this.chordDegree, time, step);
     this._hook(this.chordDegree, time, s);
-    this._drums(s, time);
+    this._drums(s, time, bar);
   }
 
   _pad(degree, time) {
@@ -310,19 +375,36 @@ export class Audio {
 
   _bass(root, time, s) {
     const g = this.layerGain.bass;
+    const peak = s === 0 ? 0.5 : s < 0 ? 0.26 : 0.32;    // s < 0 is an offbeat stab
+    const vg = this.ctx.createGain();
+    vg.gain.setValueAtTime(0.0001, time);
+    vg.gain.exponentialRampToValueAtTime(peak, time + 0.01);
+    vg.gain.exponentialRampToValueAtTime(0.0001, time + 0.24);
+    vg.connect(g);
+
+    const f = this.ctx.createBiquadFilter();
+    f.type = 'lowpass';
+    f.frequency.setValueAtTime(320, time);
+    f.frequency.exponentialRampToValueAtTime(95, time + 0.22);
+    f.Q.value = 4;                                       // a little squelch
+    f.connect(vg);
+
     const o = this.ctx.createOscillator();
     o.type = 'sawtooth';
     o.frequency.value = root / 2;
-    const f = this.ctx.createBiquadFilter();
-    f.type = 'lowpass';
-    f.frequency.setValueAtTime(260, time);
-    f.frequency.exponentialRampToValueAtTime(90, time + 0.22);
-    const vg = this.ctx.createGain();
-    vg.gain.setValueAtTime(0.0001, time);
-    vg.gain.exponentialRampToValueAtTime(s === 0 ? 0.5 : 0.32, time + 0.01);
-    vg.gain.exponentialRampToValueAtTime(0.0001, time + 0.24);
-    o.connect(f); f.connect(vg); vg.connect(g);
+    o.connect(f);
     o.start(time); o.stop(time + 0.3);
+
+    // A clean sine an octave down carries the weight the filtered saw loses.
+    const sub = this.ctx.createOscillator();
+    sub.type = 'sine';
+    sub.frequency.value = root / 4;
+    const sg = this.ctx.createGain();
+    sg.gain.setValueAtTime(0.0001, time);
+    sg.gain.exponentialRampToValueAtTime(peak * 0.8, time + 0.012);
+    sg.gain.exponentialRampToValueAtTime(0.0001, time + 0.26);
+    sub.connect(sg); sg.connect(g);
+    sub.start(time); sub.stop(time + 0.32);
   }
 
   _arp(degree, time, step) {
@@ -386,34 +468,95 @@ export class Audio {
     }
   }
 
-  _drums(s, time) {
-    const g = this.layerGain.drums;
-    if (s % 8 === 0) this._kick(time, g);
-    if (this.band >= 2 && s === 14) this._kick(time, g);      // pickup
-    if (s === 4 || s === 12) this._snare(time, g);
-    if (this.band >= 1 && (s === 7 || s === 15)) this._snare(time, g);
-    // Straight eighths, then sixteenths once the sky turns.
-    const hatEvery = this.band >= 1 ? 1 : 2;
-    if (s % hatEvery === 0) this._hat(time, g, s % 4 === 0 ? 0.16 : 0.07);
+  _drums(s, time, bar) {
+    const g = this.drumShaper;
+    const kit = KITS[this.band];
+    // Fills need somewhere to be heard, so they start once the kit is full.
+    const fill = this.band >= 1 && bar % 4 === 3 ? FILLS[this.band] : null;
+    // A few percent of velocity wobble. Bar-identical hits are the other half
+    // of why a loop sounds mechanical.
+    const hum = () => 0.92 + Math.random() * 0.16;
+
+    // A crash opens each four-bar phrase, which is most of what turns a loop
+    // into a phrase.
+    if (s === 0 && this.band >= 1 && bar % 4 === 0) this._crash(time, g, 0.5);
+
+    const kv = vel(kit.kick, s);
+    // Through a fill the kick keeps the first half of the bar and hands the
+    // rest to the toms.
+    if (kv > 0 && (!fill || s < 8)) this._kick(time, g, kv * hum());
+
+    const sv = fill ? vel(fill.snare, s) : vel(kit.snare, s);
+    if (sv > 0) {
+      this._snare(time, g, sv * hum());
+      // The clap only doubles accents, never ghost notes.
+      if (this.band >= 2 && sv > 0.7 && !fill) this._clap(time, g, sv * 0.8);
+    }
+
+    if (fill) {
+      const tv = vel(fill.tom, s);
+      if (tv > 0) this._tom(time, g, 200 - s * 7, tv);
+    }
+
+    const hv = vel(kit.hat, s);
+    if (hv > 0) {
+      // The hats keep time through the fill -- pulling them out drops the bar
+      // out instead of building it -- but step back for the toms.
+      const duck = fill && s >= 8 ? 0.55 : 1;
+      // Sub-millisecond drift: a hat line locked to the sample grid rings
+      // like one long tone rather than a series of hits.
+      this._hat(time + (Math.random() - 0.5) * 0.004, g, hv * 0.14 * duck * hum(), false);
+    }
+    const ov = vel(kit.open, s);
+    if (ov > 0 && !fill) this._hat(time, g, ov * 0.12, true);
   }
 
-  _kick(time, dest) {
-    // Duck the melodic layers and let them swell back before the next kick.
-    if (this.pumpAmount > 0.01) {
+  _kick(time, dest, level = 1) {
+    // Only accented kicks drive the sidechain -- ghost kicks pumping the mix
+    // sounds like a fault, not a groove.
+    if (this.pumpAmount > 0.01 && level > 0.6) {
       const p = this.pump.gain;
       p.cancelScheduledValues(time);
       p.setValueAtTime(1 - this.pumpAmount, time);
       p.linearRampToValueAtTime(1, time + this.spb * 0.55);
     }
+    // Two-stage pitch envelope: a fast snap from 190 to 48Hz gives the punch,
+    // then a slow settle to 41 gives the body. One long slide sounds like a
+    // falling tone, not a kick.
     const o = this.ctx.createOscillator();
     o.type = 'sine';
-    o.frequency.setValueAtTime(150, time);
-    o.frequency.exponentialRampToValueAtTime(42, time + 0.11);
+    o.frequency.setValueAtTime(190, time);
+    o.frequency.exponentialRampToValueAtTime(48, time + 0.05);
+    o.frequency.exponentialRampToValueAtTime(41, time + 0.28);
     const vg = this.ctx.createGain();
-    vg.gain.setValueAtTime(0.9, time);
-    vg.gain.exponentialRampToValueAtTime(0.0001, time + 0.3);
+    vg.gain.setValueAtTime(0.0001, time);
+    vg.gain.linearRampToValueAtTime(level, time + 0.004);   // no click on the way in
+    // Softer kicks are shorter as well as quieter, the way a real one is.
+    vg.gain.exponentialRampToValueAtTime(0.0001, time + 0.14 + level * 0.19);
     o.connect(vg); vg.connect(dest);
-    o.start(time); o.stop(time + 0.32);
+    o.start(time); o.stop(time + 0.35);
+    // Beater click, so it cuts through on small speakers.
+    this._noise(time, 0.014, dest, 0.3 * level, 'highpass', 2600);
+  }
+
+  // Filtered noise burst with two filters in series -- _noise only does one.
+  _burst(time, dur, dest, gain, lo, hi, Q = 0.8) {
+    const src = this.ctx.createBufferSource();
+    src.buffer = this.noiseBuf;
+    src.loop = true;
+    src.playbackRate.value = 0.9 + Math.random() * 0.2;   // vary the grain
+    const bp = this.ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = hi;
+    bp.Q.value = Q;
+    const hp = this.ctx.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = lo;
+    const vg = this.ctx.createGain();
+    vg.gain.setValueAtTime(gain, time);
+    vg.gain.exponentialRampToValueAtTime(0.0001, time + dur);
+    src.connect(bp); bp.connect(hp); hp.connect(vg); vg.connect(dest);
+    src.start(time); src.stop(time + dur + 0.02);
   }
 
   _noise(time, dur, dest, gain, filterType, freq, Q = 1) {
@@ -431,8 +574,99 @@ export class Audio {
     src.start(time); src.stop(time + dur + 0.02);
   }
 
-  _snare(time, dest) { this._noise(time, 0.16, dest, 0.4, 'highpass', 1400); }
-  _hat(time, dest, g) { this._noise(time, 0.045, dest, g, 'highpass', 7000); }
+  // A snare is a drum plus a rattle. Noise alone has no pitch, which is why
+  // filtered white noise reads as a hiss rather than a hit.
+  _snare(time, dest, level = 1) {
+    for (const [f, g] of [[186, 0.3], [332, 0.16]]) {
+      const o = this.ctx.createOscillator();
+      o.type = 'triangle';
+      o.frequency.setValueAtTime(f * 1.12, time);
+      o.frequency.exponentialRampToValueAtTime(f, time + 0.02);
+      const vg = this.ctx.createGain();
+      vg.gain.setValueAtTime(g * level, time);
+      vg.gain.exponentialRampToValueAtTime(0.0001, time + 0.1);
+      o.connect(vg); vg.connect(dest);
+      o.start(time); o.stop(time + 0.12);
+    }
+    this._burst(time, 0.15, dest, 0.42 * level, 900, 2100, 0.6);
+    this._burst(time, 0.09, dest, 0.34 * level, 1800, 3200, 0.7);  // crack
+    this._burst(time, 0.03, dest, 0.3 * level, 4000, 6500, 0.9);   // snap
+  }
+
+  // Toms carry the fills: the kick's shape, moved up far enough to read as a
+  // pitch, with a short rattle over the head.
+  _tom(time, dest, freq, level = 1) {
+    const o = this.ctx.createOscillator();
+    o.type = 'triangle';
+    o.frequency.setValueAtTime(freq * 1.6, time);
+    o.frequency.exponentialRampToValueAtTime(freq, time + 0.06);
+    const vg = this.ctx.createGain();
+    vg.gain.setValueAtTime(0.0001, time);
+    vg.gain.linearRampToValueAtTime(0.42 * level, time + 0.004);
+    vg.gain.exponentialRampToValueAtTime(0.0001, time + 0.24);
+    o.connect(vg); vg.connect(dest);
+    o.start(time); o.stop(time + 0.26);
+    this._burst(time, 0.05, dest, 0.1 * level, 600, 1800, 0.7);
+  }
+
+  // The hat recipe with more partials, a lower fundamental and a long tail,
+  // plus a noise wash underneath to stop it sounding like a ringing bell.
+  _crash(time, dest, level = 1) {
+    const dur = 1.6;
+    const bp = this.ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = 6000;
+    bp.Q.value = 0.4;
+    const hp = this.ctx.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = 3000;
+    const vg = this.ctx.createGain();
+    vg.gain.setValueAtTime(level * 0.26, time);
+    vg.gain.exponentialRampToValueAtTime(0.0001, time + dur);
+    bp.connect(hp); hp.connect(vg); vg.connect(dest);
+    for (const r of [2, 3, 4.16, 5.43, 6.79, 8.21, 10.7, 13.1]) {
+      const o = this.ctx.createOscillator();
+      o.type = 'square';
+      o.frequency.value = 62 * r;
+      o.connect(bp);
+      o.start(time); o.stop(time + dur + 0.02);
+    }
+    this._burst(time, dur * 0.7, dest, level * 0.16, 4000, 9000, 0.4);
+  }
+
+  // The 808 recipe: six squares at inharmonic ratios, band- and high-passed.
+  // Noise through a highpass is the classic wrong answer here -- it has no
+  // metal in it.
+  _hat(time, dest, level, open = false) {
+    const dur = open ? 0.3 : 0.05;
+    const bp = this.ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = 10000;
+    bp.Q.value = 0.7;
+    const hp = this.ctx.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = 7200;
+    const vg = this.ctx.createGain();
+    vg.gain.setValueAtTime(level * 1.1, time);
+    vg.gain.exponentialRampToValueAtTime(0.0001, time + dur);
+    bp.connect(hp); hp.connect(vg); vg.connect(dest);
+    for (const r of [2, 3, 4.16, 5.43, 6.79, 8.21]) {
+      const o = this.ctx.createOscillator();
+      o.type = 'square';
+      o.frequency.value = 40 * r;
+      o.connect(bp);
+      o.start(time); o.stop(time + dur + 0.02);
+    }
+  }
+
+  // Three fast repeats then a tail -- what makes a clap a clap rather than a
+  // single slap.
+  _clap(time, dest, level = 1) {
+    for (const d of [0, 0.012, 0.024]) {
+      this._burst(time + d, 0.022, dest, 0.3 * level, 1000, 1800, 1.1);
+    }
+    this._burst(time + 0.03, 0.16, dest, 0.22 * level, 1100, 2000, 0.7);
+  }
 
   // ---- gameplay sounds --------------------------------------------------
 

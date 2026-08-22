@@ -645,19 +645,77 @@ async function main() {
       a.ctx.createOscillator = () => { hookNotes++; return real(); };
       for (let s = 0; s < 16; s++) a._hook(0, a.ctx.currentTime + 8 + s * 0.01, s);
       a.ctx.createOscillator = real;
-      let hats = 0;
-      for (let s = 0; s < 16; s++) if (s % (a.band >= 1 ? 1 : 2) === 0) hats++;
-      rows.push({ bpm: a.bpm, pump: a.pumpAmount, hook: hookNotes / 2, hats });
+      // Count real drum onsets over a four-bar phrase by wrapping the voices,
+      // rather than reimplementing the pattern logic in the test.
+      const VOICES = ['kick', 'snare', 'hat', 'tom', 'crash', 'clap'];
+      const hits = {};
+      const orig = {};
+      for (const v of VOICES) {
+        hits[v] = 0;
+        orig[v] = a['_' + v];
+        a['_' + v] = () => { hits[v]++; };
+      }
+      const perBar = [];
+      let seen = 0;
+      for (let bar = 0; bar < 4; bar++) {
+        for (let s = 0; s < 16; s++) a._drums(s, 0, bar);
+        const now = VOICES.reduce((n, v) => n + hits[v], 0);
+        perBar.push(now - seen);
+        seen = now;
+      }
+      for (const v of VOICES) a['_' + v] = orig[v];
+      rows.push({
+        bpm: a.bpm, pump: a.pumpAmount, hook: hookNotes / 2,
+        onsets: seen, perBar, tom: hits.tom, crash: hits.crash,
+      });
     }
     a.setWave(1);
     return rows;
   });
   const rising = (key) => arrangement.every((r, i) => i === 0 || r[key] >= arrangement[i - 1][key]);
   check('tempo, pump, hook and percussion all build with the sector',
-        rising('bpm') && rising('pump') && rising('hook') &&
+        rising('bpm') && rising('pump') && rising('hook') && rising('onsets') &&
         arrangement[0].hook === 0 && arrangement[3].hook >= 10 &&
-        arrangement[0].hats === 8 && arrangement[3].hats === 16 &&
+        arrangement[3].onsets >= arrangement[0].onsets * 3 &&
         arrangement[3].bpm - arrangement[0].bpm >= 30);
+
+  // "The drum sounds dumb" was a loop that never varied: the same sixteen
+  // steps, at the same velocity, for the whole game. Every sector past the
+  // first now closes its four-bar phrase with a tom fill and opens the next
+  // with a crash, so the bars are not interchangeable.
+  check('the kit plays phrases, not one bar on repeat',
+        arrangement[0].tom === 0 && arrangement[0].crash === 0 &&
+        [1, 2, 3].every((b) => arrangement[b].tom > 0 && arrangement[b].crash === 1 &&
+                               arrangement[b].perBar[3] !== arrangement[b].perBar[2] &&
+                               arrangement[b].perBar[1] === arrangement[b].perBar[2]));
+
+  // The kit also used to wait for danger > 0.62 in every sector, which meant
+  // most of a run had no percussion at all. Probe the real gate by recording
+  // what setDanger actually asks the drum layer for.
+  const drumGate = await state(() => {
+    const a = window.game.audio;
+    const param = a.layerGain.drums.gain;
+    const real = param.setTargetAtTime.bind(param);
+    let target = 0;
+    param.setTargetAtTime = (v, t, c) => { target = v; return real(v, t, c); };
+    const gates = [];
+    for (const band of [0, 1, 2, 3]) {
+      a.silentUntil = 0;
+      a.setWave(band * 3 + 1);
+      let gate = 1;
+      for (let d = 0; d <= 1.0001; d += 0.02) {
+        a.setDanger(d);
+        if (target > 0.001) { gate = +d.toFixed(2); break; }
+      }
+      gates.push(gate);
+    }
+    param.setTargetAtTime = real;
+    a.setWave(1);
+    a.setDanger(0);
+    return gates;
+  });
+  check('the drums arrive earlier every sector',
+        drumGate.every((g, i) => i === 0 || g < drumGate[i - 1]) && drumGate[3] < 0.25);
 
   // The wave build, rendered offline and measured. The first version used an
   // exponential gain ramp, which is a factor of thousands and so stays
