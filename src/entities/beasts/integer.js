@@ -66,6 +66,7 @@ export class IntegerBeast extends Beast {
 
   get magnitude() { return Math.max(8, Math.abs(this.value) * 1.4); }
   get factOp() { return this.op === 'x' ? '×' : '÷'; }
+  get concept() { return 'integer'; }
 
   get promptText() {
     const fa = this.a < 0 ? `(−${Math.abs(this.a)})` : String(this.a);

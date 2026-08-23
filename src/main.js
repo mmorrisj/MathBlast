@@ -8,6 +8,7 @@ import { theme, setThemeWave, setColorSafe, setReducedMotion } from './theme.js'
 import { Audio } from './audio.js';
 import { SkillTable, makeChoices } from './problems.js';
 import { Profiles, Scores, cleanName, MAX_NAME } from './profiles.js';
+import { Progress } from './progress.js';
 import { TIERS, DEFAULT_TIER, tierById, descentRate, waveCount } from './difficulty.js';
 import { Camera } from './fx/camera.js';
 import { Particles } from './fx/particles.js';
@@ -23,6 +24,8 @@ import { Quality } from './quality.js';
 import { touchButtons, touchHitTest, drawTouchButtons, drawRotate } from './ui/touch.js';
 import { drawProfiles, profileHitTest, nameButton, drawScores, drawLeaderboard, MAX_ROWS } from './ui/profile.js';
 import { drawStarChart } from './ui/starchart.js';
+import { drawProgress } from './ui/progress.js';
+import { dayKey } from './progress.js';
 
 const W = 1280;
 const H = 720;
@@ -46,6 +49,7 @@ class Game {
     this.profiles = new Profiles();
     this.scores = new Scores();
     this.skill = new SkillTable(this.profiles.activeId);
+    this.progress = new Progress(this.profiles.activeId);
     this.quality = new Quality(new URLSearchParams(location.search).get('q'));
 
     // Coarse pointer means no keyboard: pick-an-answer layout, on-screen
@@ -70,6 +74,7 @@ class Game {
     this.help = false;
     this.board = false;      // the full top-20 screen
     this.sky = false;        // the star chart
+    this.report = false;     // the progress page, for a parent
     this.danger = 0;
     this.inputMode = 'type';
     this.choices = [];
@@ -163,6 +168,7 @@ class Game {
         } else if (e.key === 'h' || e.key === 'H') this.help = !this.help;
         else if (e.key === 't' || e.key === 'T') this.board = !this.board;
         else if (e.key === 's' || e.key === 'S') this.sky = !this.sky;
+        else if (e.key === 'g' || e.key === 'G') this.report = !this.report;
         return;
       }
 
@@ -181,6 +187,11 @@ class Game {
       if (e.key === 's' || e.key === 'S') { this.sky = !this.sky; return; }
       if (this.sky) {
         if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') this.sky = false;
+        return;
+      }
+      if (e.key === 'g' || e.key === 'G') { this.report = !this.report; return; }
+      if (this.report) {
+        if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') this.report = false;
         return;
       }
 
@@ -254,6 +265,7 @@ class Game {
       if (this.help) { this.help = false; return; }
       if (this.board) { this.board = false; return; }
       if (this.sky) { this.sky = false; return; }
+      if (this.report) { this.report = false; return; }
 
       // On-screen buttons sit above everything else.
       const btn = touchHitTest(px, py, touchButtons(this, W, H));
@@ -261,6 +273,7 @@ class Game {
         if (btn === 'help') this.help = true;
         else if (btn === 'board') this.board = true;
         else if (btn === 'sky') this.sky = true;
+        else if (btn === 'report') this.report = true;
         else if (btn === 'pause') this.paused = !this.paused;
         else if (btn === 'beam') this._fireBeam();
         return;
@@ -368,6 +381,7 @@ class Game {
       if (this.help) { this.help = false; return; }
       if (this.board) { this.board = false; return; }
       if (this.sky) { this.sky = false; return; }
+      if (this.report) { this.report = false; return; }
       if (this.naming) { this._stopNaming(); return; }
       if (this.state === 'playing') { this.paused = !this.paused; return; }
       if (this.state === 'title') { this.state = 'profile'; this.stateTime = 0; }
@@ -442,6 +456,7 @@ class Game {
     if (!p) return;
     this.profiles.select(p.id);
     this.skill.useProfile(p.id);
+    this.progress.useProfile(p.id);
     this.profileIndex = i;
     this.tierIndex = Math.max(0, TIERS.findIndex((x) => x.id === (p.tier || DEFAULT_TIER)));
     this.state = 'title';
@@ -457,6 +472,7 @@ class Game {
       this.state = 'playing';
       this.stateTime = 0;
       this._nextWave();
+      this.progress.startRun();
       if (this._wake) this._wake();
     }
   }
@@ -564,6 +580,9 @@ class Game {
     // A first attempt to factor a prime is a lesson, not a mistake -- keep it
     // out of accuracy, the skill table and the mode shift.
     const freebie = !correct && t.prime && !t.revealed;
+    // The freebie is excluded here too, or a parent's page would show a miss
+    // for the one attempt the game deliberately does not count as one.
+    if (!freebie) this.progress.record(t.concept, correct, elapsed);
     if (t.a != null && t.b != null) {
       // The skill table has always known when a fact tipped over into being
       // known. Saying so is most of why anyone would care that it tracks.
@@ -826,6 +845,7 @@ class Game {
 
   // A beast completed its journey: descenders hit the dome, risers escape.
   _arrive(b) {
+    this.progress.landed(b.concept);
     const pw = power(b.magnitude);
     this.combo = 0;
     this.waveMisses++;
@@ -1096,6 +1116,8 @@ class Game {
       drawLeaderboard(this.out, this, W, H);
     } else if (this.sky) {
       drawStarChart(this.out, this, W, H, this.time);
+    } else if (this.report) {
+      drawProgress(this.out, this, W, H, dayKey());
     } else if (this.state === 'profile') {
       drawProfiles(this.out, this, W, H, this.time);
     } else {

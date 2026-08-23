@@ -529,7 +529,7 @@ export function drawTitle(ctx, W, H, t, g) {
 
   ctx.font = `600 15px ${MONO}`;
   ctx.fillStyle = `hsla(${theme.friendly},90%,72%,0.9)`;
-  ctx.fillText('H — HOW TO PLAY     T — TOP 20     S — YOUR SKY', W / 2, TIER_Y + TIER_H + 92);
+  ctx.fillText('H HOW TO PLAY   T TOP 20   S YOUR SKY   G PROGRESS', W / 2, TIER_Y + TIER_H + 92);
 
   if (g) drawScores(ctx, g.scores, W / 2, 250, W, { limit: 5, width: 420 });
 
@@ -669,7 +669,7 @@ export function drawHelp(ctx, W, H, g) {
 
   ctx.font = `400 13px ${MONO}`;
   ctx.fillStyle = 'rgba(140,180,215,0.5)';
-  ctx.fillText('P pause · M mute · Q quality · C colour-safe · R reduced motion · T top 20 · S your sky',
+  ctx.fillText('P pause · M mute · Q quality · C colour-safe · R reduced motion · T top 20 · S sky · G progress',
                W / 2, H - 82);
 
   ctx.font = `700 15px ${MONO}`;

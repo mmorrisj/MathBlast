@@ -87,6 +87,7 @@ export class ArithBeast extends Beast {
   get magnitude() { return Math.max(6, Math.abs(this.value) * 1.6); }
   get promptText() { return `${this.a} ${this.op === '+' ? '+' : '−'} ${this.b}`; }
   get factOp() { return this.op === '+' ? '+' : '−'; }
+  get concept() { return this.op === '+' ? 'add' : 'sub'; }
   get hintText() { return `${this.promptText} =`; }
   get answerText() { return String(this.value); }
   accepts(raw) { return toInt(raw) === this.value; }

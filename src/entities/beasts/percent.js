@@ -24,6 +24,7 @@ export class PercentBeast extends Beast {
 
   get magnitude() { return Math.max(8, this.value * 1.5); }
   get promptText() { return `${this.pct}% of ${this.total}`; }
+  get concept() { return 'percent'; }
   get hintText() { return `${this.promptText} =`; }
   get answerText() { return String(this.value); }
   accepts(raw) { return toInt(raw) === this.value; }

@@ -24,6 +24,7 @@ export class FractionBeast extends Beast {
 
   get magnitude() { return this.q * 6; }
   get promptText() { return `? / ${this.q}`; }
+  get concept() { return 'fraction'; }
   get hintText() { return `missing piece: ? / ${this.q}  (or 3/8 form) =`; }
   get answerText() { return `${this.rp}/${this.rq}`; }
 
