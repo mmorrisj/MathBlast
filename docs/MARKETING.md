@@ -101,22 +101,39 @@ circumventing, not impossible to circumvent.
 
 ## Licensing
 
-The repo is public and has no `LICENSE` file. Absent one the legal default is
-all rights reserved, but the default is invisible: to a reader, "no licence"
-looks like an oversight rather than a position. Adding one is the cheapest item
-on this list and it blocks nothing else.
+The game is **GPL-3.0-only** (`LICENSE`). Anyone may read, fork, build and
+redistribute it, and anything derived from it has to stay under the same
+licence — which rules out someone taking the code closed and selling it, but
+explicitly does *not* rule out someone building the app themselves and giving it
+away. That is a legitimate use, and the licence is the decision to allow it.
 
-The choice worth making deliberately is whether the *source* is open or merely
-visible. Free-to-play does not require either — the demo can stay up under any
-licence. Note that GitHub Pages serves public repos on the free plan, so if the
-source ever goes private the demo needs a different host (Netlify, Cloudflare
-Pages and itch.io all serve a static build from a private repo for nothing).
+So the paid listing is not protected by copyright, and it is worth being clear
+about what does protect it:
 
-**The typeface is settled**: JetBrains Mono is SIL Open Font License 1.1, free
-for commercial use, and JetBrains explicitly does not require attribution. The
-OFL does require the licence travel with the font when it is redistributed, so
-`assets/font/OFL.txt` now ships alongside the `.woff2` — into the precache, and
-therefore into the Android build via `tools/build-www.mjs`.
+- **The name.** "MathBlast" and the store listing are not part of the licence
+  grant. A fork may exist; it may not call itself this or use these icons and
+  screenshots. Play's impersonation policy is the enforcement route if one tries.
+- **Being the official one.** The listing linked from the site, with the reviews
+  and the install count, is the one people find and trust.
+- **Convenience.** Almost nobody who would pay $2.99 for a maths game will
+  instead install the Android SDK and build an `.aab`.
+
+The consequence for the paid feature: the progress report will be GPL too, so it
+is not a secret and cannot be one. That is fine — it is not secrecy that makes
+it worth buying, it is that it is finished, installed, and one tap away.
+
+One thing the licence does close off. **GPLv3 and Apple's App Store terms
+conflict** — the App Store imposes usage restrictions the GPL forbids adding,
+and Apple has pulled GPL apps over exactly this. Google Play has no such
+problem. iOS was already a separate project for other reasons (below); this
+makes it a decision as well as a cost.
+
+**The typeface is settled and separate.** JetBrains Mono is SIL Open Font
+License 1.1, free for commercial use, and JetBrains explicitly does not require
+attribution. The OFL does require the licence travel with the font when it is
+redistributed, which shipping an APK is, so `assets/font/OFL.txt` now sits
+alongside the `.woff2` — in the precache, and therefore in the Android build via
+`tools/build-www.mjs`.
 
 ## What has to be filed, and how long it takes
 
@@ -191,7 +208,7 @@ value to bid against; you would be buying installs at a loss deliberately.
 
 ## The order I would do it in
 
-1. Add a `LICENSE`, whichever way you decide. The ambiguity is the only bad option.
+1. ~~Add a `LICENSE`.~~ Done — GPL-3.0-only.
 2. Write the privacy policy; publish it on the existing Pages site.
 3. Build the landing page, also on Pages, with the game one click away. Do this
    before the store account — it is where every link you ever post will point.
@@ -204,7 +221,8 @@ value to bid against; you would be buying installs at a loss deliberately.
 
 ## What this does not solve
 
-An App Store release. Apple does not accept a wrapped web view as a game the way
-Play does, so iOS means a real port — a different project. The PWA installs fine
-from Safari, so iPhone users are covered by the free version; just not by
+An App Store release. Two independent reasons now: Apple does not accept a
+wrapped web view as a game the way Play does, so iOS would mean a real port; and
+GPLv3 conflicts with the App Store's terms regardless. The PWA installs fine
+from Safari, so iPhone users are covered by the free version — just not by
 anything you can charge for.

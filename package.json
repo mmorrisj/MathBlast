@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "description": "Stop the descending beasts by solving math problems.",
+  "license": "GPL-3.0-only",
   "scripts": {
     "start": "node serve.js",
     "test": "node test/run.mjs",
