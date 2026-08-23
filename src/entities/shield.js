@@ -119,6 +119,13 @@ export class Shield {
   }
 
   // Repair the worst damaged plate -- the perfect-wave reward.
+  // A perfect wave lifts one landing scar off the surface, so the planet is a
+  // record of the run that clean play can undo rather than a one-way tally.
+  healScar() {
+    if (!this.scars.length) return null;
+    return this.scars.shift();
+  }
+
   repairWorst() {
     let best = null, bd = 2;
     for (const p of this.plates) {

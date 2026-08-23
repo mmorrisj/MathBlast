@@ -3,7 +3,7 @@
 // they stay crisp and full colour.
 
 import { clamp, lerp, easeOutElastic, easeOutCubic, roundRect, TAU, showSigned } from '../util.js';
-import { theme } from '../theme.js';
+import { theme, bandNameFor } from '../theme.js';
 import { drawScores } from './profile.js';
 import { TIERS } from '../difficulty.js';
 
@@ -57,6 +57,48 @@ export function tierHitTest(px, py, W) {
 let topScrim = null;
 let bottomScrim = null;
 let bottomScrimTop = -1;
+
+// A fact just crossed into being known. It fades in, holds, and fades out.
+function drawMastered(ctx, g, W, H) {
+  const fx = g.masteredFx;
+  if (!fx) return;
+  const a = Math.min(1, fx.t / 0.2) * Math.min(1, (2.4 - fx.t) / 0.6);
+  ctx.save();
+  ctx.globalAlpha = Math.max(0, a);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `700 12px ${MONO}`;
+  ctx.fillStyle = `hsla(${theme.friendly},90%,70%,0.9)`;
+  ctx.fillText('STAR LIT', W / 2, H - 196);
+  ctx.font = `700 28px ${MONO}`;
+  ctx.fillStyle = '#eaf6ff';
+  ctx.shadowColor = `hsla(${theme.friendly},100%,62%,0.95)`;
+  ctx.shadowBlur = 24;
+  ctx.fillText(fx.text, W / 2, H - 168);
+  ctx.restore();
+}
+
+// Shown across the middle on the last core: the one moment the game raises its
+// voice. Everything else in the danger ramp is continuous.
+function drawLastStand(ctx, g, W, H, t) {
+  const k = g.lastStandT;
+  if (k < 0.02) return;
+  ctx.save();
+  ctx.globalAlpha = k;
+  const pulse = 0.6 + Math.sin(t * 5) * 0.4;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `700 30px ${MONO}`;
+  ctx.fillStyle = `rgba(255,138,110,${0.5 + pulse * 0.5})`;
+  ctx.shadowColor = 'hsla(12,100%,58%,0.95)';
+  ctx.shadowBlur = 26 * pulse;
+  ctx.fillText('LAST CORE', W / 2, 150);
+  ctx.shadowBlur = 0;
+  ctx.font = `400 13px ${MONO}`;
+  ctx.fillStyle = `rgba(255,190,170,${0.35 + pulse * 0.25})`;
+  ctx.fillText('one more landing ends the run', W / 2, 176);
+  ctx.restore();
+}
 
 export function drawHud(ctx, g, W, H) {
   ctx.save();
@@ -229,6 +271,8 @@ export function drawHud(ctx, g, W, H) {
   }
 
   drawEntry(ctx, g, W, H);
+  drawLastStand(ctx, g, W, H, g.time);
+  drawMastered(ctx, g, W, H);
   ctx.restore();
 }
 
@@ -388,7 +432,22 @@ export function drawInterlude(ctx, g, W, H, p) {
   ctx.shadowBlur = 26;
   ctx.fillText(`WAVE ${g.wave} CLEAR`, W / 2, H / 2 - 66);
 
-  if (g.lastPerfect) {
+  // Entering a new sector. The bands have been named since they went in and
+  // the name was never once shown.
+  // Ask whether the name actually changes rather than doing the modulo: past
+  // the last band every third wave would otherwise re-announce CRIMSON DEEP.
+  if (g.wave >= 1 && bandNameFor(g.wave + 1) !== bandNameFor(g.wave)) {
+    ctx.font = `700 12px ${MONO}`;
+    ctx.fillStyle = `hsla(${theme.friendly},90%,70%,0.8)`;
+    ctx.shadowBlur = 0;
+    ctx.fillText('ENTERING', W / 2, H / 2 - 18);
+    ctx.font = `700 40px ${MONO}`;
+    ctx.fillStyle = '#dff1ff';
+    ctx.shadowColor = `hsla(${theme.env},100%,64%,0.95)`;
+    ctx.shadowBlur = 34;
+    ctx.fillText(bandNameFor(g.wave + 1), W / 2, H / 2 + 20);
+    ctx.shadowBlur = 0;
+  } else if (g.lastPerfect) {
     const s = 1 + Math.sin(p * Math.PI) * 0.06;
     ctx.save();
     ctx.translate(W / 2, H / 2 - 6);
@@ -470,7 +529,7 @@ export function drawTitle(ctx, W, H, t, g) {
 
   ctx.font = `600 15px ${MONO}`;
   ctx.fillStyle = `hsla(${theme.friendly},90%,72%,0.9)`;
-  ctx.fillText('H — HOW TO PLAY        T — TOP 20', W / 2, TIER_Y + TIER_H + 92);
+  ctx.fillText('H — HOW TO PLAY     T — TOP 20     S — YOUR SKY', W / 2, TIER_Y + TIER_H + 92);
 
   if (g) drawScores(ctx, g.scores, W / 2, 250, W, { limit: 5, width: 420 });
 
@@ -610,7 +669,7 @@ export function drawHelp(ctx, W, H, g) {
 
   ctx.font = `400 13px ${MONO}`;
   ctx.fillStyle = 'rgba(140,180,215,0.5)';
-  ctx.fillText('P pause   ·   M mute   ·   Q quality   ·   C colour-safe   ·   R reduced motion   ·   T top 20',
+  ctx.fillText('P pause · M mute · Q quality · C colour-safe · R reduced motion · T top 20 · S your sky',
                W / 2, H - 82);
 
   ctx.font = `700 15px ${MONO}`;
@@ -665,7 +724,7 @@ export function drawGameOver(ctx, g, W, H, t) {
     ctx.fillText('PRACTISE THESE', W / 2, H / 2 - 4);
     ctx.font = `700 24px ${MONO}`;
     ctx.fillStyle = '#fff0d0';
-    ctx.fillText(weak.map((f) => `${f.a}×${f.b}`).join('    '), W / 2, H / 2 + 28);
+    ctx.fillText(weak.map((f) => `${f.a}${f.op || '×'}${f.b}`).join('    '), W / 2, H / 2 + 28);
   }
 
   drawScores(ctx, g.scores, W / 2, H / 2 + 68, W,

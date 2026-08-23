@@ -42,6 +42,12 @@ export function setColorSafe(on) {
   Object.assign(theme, on ? PALETTES.colorSafe : PALETTES.default);
 }
 
+// The sector a wave belongs to, without changing the live theme -- the
+// interlude names the sector you are about to enter, one wave ahead of itself.
+export function bandNameFor(wave) {
+  return BANDS[clamp(Math.floor((wave - 1) / BAND_WAVES), 0, BANDS.length - 1)].name;
+}
+
 export function setThemeWave(wave) {
   const i = clamp(Math.floor((wave - 1) / BAND_WAVES), 0, BANDS.length - 1);
   const b = BANDS[i];

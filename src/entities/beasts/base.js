@@ -39,6 +39,9 @@ export class Beast {
 
   // Shown on the beast itself.
   get promptText() { return ''; }
+
+  // Which operation this beast's (a, b) pair belongs to, for the skill table.
+  get factOp() { return '×'; }
   // Shown beside the answer box, e.g. "7 × 8 =".
   get hintText() { return `${this.promptText} =`; }
 
@@ -94,7 +97,35 @@ export class Beast {
   emitCollapse() {}
 
   // Shared shell + halo, drawn under the subclass body.
+  // A tapered plume behind the descent. Beasts fall slowly enough at low waves
+  // that without one they read as static objects being teleported downward.
+  // Drawn from speed rather than a position history: no per-frame allocation,
+  // and it lengthens as the wave gets faster, which is the useful signal.
+  drawTrail(ctx, radius) {
+    if (this.state !== 'alive' || this.speed < 8) return;
+    const len = Math.min(150, 26 + this.speed * 0.85);
+    const dir = this.rises ? 1 : -1;              // the plume is behind, not ahead
+    const y0 = this.y + dir * radius * 0.5;
+    const y1 = y0 + dir * len;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const g = ctx.createLinearGradient(this.x, y0, this.x, y1);
+    g.addColorStop(0, `hsla(${this.hue}, 95%, 62%, 0.24)`);
+    g.addColorStop(1, `hsla(${this.hue}, 95%, 55%, 0)`);
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(this.x - radius * 0.42, y0);
+    ctx.lineTo(this.x + radius * 0.42, y0);
+    // A slight sway so the plume follows the beast's drift rather than hanging
+    // dead straight behind it.
+    ctx.lineTo(this.x + Math.sin(this.t * 1.1 + this.phase) * 9, y1);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
   drawShell(ctx, isTarget, radius) {
+    this.drawTrail(ctx, radius);
     const flash = this.hitFlash;
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';

@@ -22,6 +22,7 @@ import { drawHud, drawTitle, drawGameOver, drawFocus, drawInterlude, drawHelp, c
 import { Quality } from './quality.js';
 import { touchButtons, touchHitTest, drawTouchButtons, drawRotate } from './ui/touch.js';
 import { drawProfiles, profileHitTest, nameButton, drawScores, drawLeaderboard, MAX_ROWS } from './ui/profile.js';
+import { drawStarChart } from './ui/starchart.js';
 
 const W = 1280;
 const H = 720;
@@ -68,6 +69,7 @@ class Game {
     this.paused = false;
     this.help = false;
     this.board = false;      // the full top-20 screen
+    this.sky = false;        // the star chart
     this.danger = 0;
     this.inputMode = 'type';
     this.choices = [];
@@ -121,9 +123,12 @@ class Game {
     this.phaseTimer = 0;
     this.waveMisses = 0;
     this.lastPerfect = false;
+    this.lastStandT = 0;          // 0..1 ramp into the one-core state
+    this.masteredFx = null;       // { text, t } when a fact just crossed
     this.spawnTimer = 0;
     this.waveRemaining = 0;
     this.targetBeast = null;
+    this.chainFx = [];             // bolts drawn between chained kills
     this.manualTargetId = null;    // set when the player picks a beast themselves
     this.choices = [];
 
@@ -157,6 +162,7 @@ class Game {
           }
         } else if (e.key === 'h' || e.key === 'H') this.help = !this.help;
         else if (e.key === 't' || e.key === 'T') this.board = !this.board;
+        else if (e.key === 's' || e.key === 'S') this.sky = !this.sky;
         return;
       }
 
@@ -170,6 +176,11 @@ class Game {
       if (e.key === 't' || e.key === 'T') { this.board = !this.board; return; }
       if (this.board) {
         if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') this.board = false;
+        return;
+      }
+      if (e.key === 's' || e.key === 'S') { this.sky = !this.sky; return; }
+      if (this.sky) {
+        if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') this.sky = false;
         return;
       }
 
@@ -242,12 +253,14 @@ class Game {
 
       if (this.help) { this.help = false; return; }
       if (this.board) { this.board = false; return; }
+      if (this.sky) { this.sky = false; return; }
 
       // On-screen buttons sit above everything else.
       const btn = touchHitTest(px, py, touchButtons(this, W, H));
       if (btn) {
         if (btn === 'help') this.help = true;
         else if (btn === 'board') this.board = true;
+        else if (btn === 'sky') this.sky = true;
         else if (btn === 'pause') this.paused = !this.paused;
         else if (btn === 'beam') this._fireBeam();
         return;
@@ -354,6 +367,7 @@ class Game {
       history.pushState({ mathblast: 'shell' }, '');
       if (this.help) { this.help = false; return; }
       if (this.board) { this.board = false; return; }
+      if (this.sky) { this.sky = false; return; }
       if (this.naming) { this._stopNaming(); return; }
       if (this.state === 'playing') { this.paused = !this.paused; return; }
       if (this.state === 'title') { this.state = 'profile'; this.stateTime = 0; }
@@ -550,7 +564,18 @@ class Game {
     // A first attempt to factor a prime is a lesson, not a mistake -- keep it
     // out of accuracy, the skill table and the mode shift.
     const freebie = !correct && t.prime && !t.revealed;
-    if (t.a != null && t.b != null) this.skill.record(t.a, t.b, elapsed, correct);
+    if (t.a != null && t.b != null) {
+      // The skill table has always known when a fact tipped over into being
+      // known. Saying so is most of why anyone would care that it tracks.
+      const crossed = this.skill.record(t.a, t.b, t.factOp, elapsed, correct);
+      if (crossed) {
+        this.masteredFx = { text: `${t.a} ${t.factOp} ${t.b}`, t: 0 };
+        this.audio.charged();
+        this.particles.burst(t.x, t.y, 26, {
+          hue: theme.friendly, speed: 320, life: 1, size: 3.2, stretch: 1.1,
+        });
+      }
+    }
     if (!freebie) {
       this.attempts++;
       if (correct) this.solved++;
@@ -641,6 +666,7 @@ class Game {
     if (this.lastPerfect) {
       this.audio.resolve();
       const p = this.shield.repairWorst();
+      this.shield.healScar();
       this.shield.flash = 1;
       if (p) this.particles.burst(p.x, p.y, 30, { hue: theme.friendly, speed: 240, life: 0.9, size: 4 });
       this.shockwaves.spawn(CX, this.shield.domeY(CX), 1.1, { hue: theme.friendly, split: 0.4 });
@@ -659,6 +685,50 @@ class Game {
 
   // Everything that happens when a beast is taken apart. `pw` scales the whole
   // impact: ring count, debris, orb payout, hitstop, shake and the kill tone.
+  // Solving a beast takes out its neighbours whose answers share a factor with
+  // it. The only tactic the game had was "answer fast"; this makes noticing
+  // that 6 and 24 are related worth something, which is the actual
+  // mathematical skill rather than the typing speed.
+  //
+  // Chained beasts pay 40% and do not touch the combo, accuracy or the skill
+  // table -- the player did not answer them.
+  _chain(from) {
+    const v = Number(from.answerText);
+    if (!Number.isFinite(v) || v < 2) return;
+
+    // Both sides have to be at least two, or every beast divides every other
+    // and the whole field goes off at once.
+    const related = (o) => {
+      if (o === from || !o.alive || o.locked || o.stages) return false;
+      const w = Number(o.answerText);
+      if (!Number.isFinite(w) || w < 2) return false;
+      const lo = Math.min(v, w);
+      const hi = Math.max(v, w);
+      return hi % lo === 0;
+    };
+
+    // Everything chained shares a factor with the answer that was *typed*,
+    // not with the previous link -- "all the ones related to what I solved" is
+    // a rule a nine-year-old can hold; a propagating one is not. `src` only
+    // orders them by distance so the bolt hops to the nearest each time.
+    // Nearest first, and a longer chain the better the streak is going.
+    const reach = 2 + Math.min(2, Math.floor(this.combo / 6));
+    let src = from;
+    for (let n = 0; n < reach; n++) {
+      const pool = this.beasts.filter(related);
+      if (!pool.length) return;
+      pool.sort((p, q) => Math.hypot(p.x - src.x, p.y - src.y) - Math.hypot(q.x - src.x, q.y - src.y));
+      const hit = pool[0];
+      const pw = power(hit.magnitude);
+      this.chainFx.push({ ax: src.x, ay: src.y, bx: hit.x, by: hit.y, t: 0, life: 0.34 });
+      this.score += Math.round((40 + hit.magnitude) * 0.4);
+      this.audio.chain(hit.x, n);
+      this._destroy(hit, pw * 0.8, true);
+      this.camera.shake(0.12);
+      src = hit;
+    }
+  }
+
   _destroy(b, pw, quiet = false) {
     b.kill();
 
@@ -705,6 +775,7 @@ class Game {
       const died = b.resolve(shot.value);
       if (died) {
         this._destroy(b, pw);
+        this._chain(b);
         // A composite asteroid fractures into two proportional chunks.
         if (b.children && b.children.length) {
           for (let i = 0; i < b.children.length; i++) {
@@ -787,6 +858,12 @@ class Game {
       this.shield.scar(b.x);
       this.shield.loseCore();
       this.camera.shake(1);
+      // Down to the last core is a moment, not another notch on a gradient.
+      if (this.cores === 1) {
+        this.camera.stop(0.14);
+        this.camera.shake(1.5);
+        this.audio.lastStand();
+      }
       this.camera.stop(0.1);
       this.particles.burst(b.x, y + 20, Math.round(60 + pw * 50), {
         hue: 20, speed: 500 + pw * 260, life: 1.4, size: 6, grav: 260, stretch: 1.2,
@@ -829,6 +906,14 @@ class Game {
     if (this.beamFx) {
       this.beamFx.t += dtReal;
       if (this.beamFx.t > 0.55) this.beamFx = null;
+    }
+    if (this.chainFx.length) {
+      for (const c of this.chainFx) c.t += dtReal;
+      this.chainFx = this.chainFx.filter((c) => c.t < c.life);
+    }
+    if (this.masteredFx) {
+      this.masteredFx.t += dtReal;
+      if (this.masteredFx.t > 2.4) this.masteredFx = null;
     }
 
     if (this.state === 'profile') {
@@ -914,6 +999,10 @@ class Game {
     this.orbs.update(dt, (o) => this._absorbOrb(o));
 
     this.danger = damp(this.danger, this.wavePhase === 'interlude' ? 0 : maxProgress, 5, dtReal);
+    // The last-core state fades in rather than snapping, and fades back out if
+    // a core is somehow recovered.
+    const stand = this.state === 'playing' && this.cores === 1 ? 1 : 0;
+    this.lastStandT = damp(this.lastStandT, stand, 2.6, dtReal);
     this.audio.setDanger(this.danger);
 
     const nearMiss = !theme.reducedMotion && maxProgress > 0.86 && this.targetBeast;
@@ -973,6 +1062,7 @@ class Game {
     if (this.state === 'playing') this.turret.draw(ctx, this.danger, this.overcharge);
     for (const b of this.beasts) b.draw(ctx, b === this.targetBeast);
     for (const s of this.shots) s.draw(ctx);
+    if (this.chainFx.length) this._drawChains(ctx);
     if (this.beamFx) this._drawBeam(ctx);
     this.orbs.draw(ctx);
     this.shockwaves.draw(ctx, q.aberration);
@@ -986,8 +1076,10 @@ class Game {
     this.post.apply(this.out, {
       bloom: q.bloom ? 0.85 + this.danger * 0.3 : 0,
       aberration: q.aberration ? Math.max(0, this.danger - 0.5) * 0.9 + this.camera.slowmo * 0.25 : 0,
-      desat: q.desat ? this.camera.slowmo * 0.7 : 0,
-      vignette: 0.5 + this.danger * 0.25,
+      // On the last core the colour drains out of the world. The danger ramp
+      // is continuous by design; this is the one hard edge in it.
+      desat: q.desat ? clamp(this.camera.slowmo * 0.7 + this.lastStandT * 0.55, 0, 1) : 0,
+      vignette: 0.5 + this.danger * 0.25 + this.lastStandT * 0.22,
     });
 
     if (this.state === 'playing') {
@@ -1002,6 +1094,8 @@ class Game {
       drawHelp(this.out, W, H, this);
     } else if (this.board) {
       drawLeaderboard(this.out, this, W, H);
+    } else if (this.sky) {
+      drawStarChart(this.out, this, W, H, this.time);
     } else if (this.state === 'profile') {
       drawProfiles(this.out, this, W, H, this.time);
     } else {
@@ -1021,6 +1115,39 @@ class Game {
       this.out.fillText('PAUSED', W / 2, H / 2);
       this.out.restore();
     }
+  }
+
+  // A jagged bolt between two answers that share a factor.
+  _drawChains(ctx) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineCap = 'round';
+    for (const c of this.chainFx) {
+      const k = 1 - c.t / c.life;
+      const dx = c.bx - c.ax;
+      const dy = c.by - c.ay;
+      const len = Math.hypot(dx, dy) || 1;
+      const nx = -dy / len;
+      const ny = dx / len;
+      const steps = Math.max(3, Math.round(len / 26));
+      ctx.beginPath();
+      ctx.moveTo(c.ax, c.ay);
+      for (let i = 1; i < steps; i++) {
+        const f = i / steps;
+        // Deterministic zigzag: a random one reshapes itself every frame and
+        // reads as static rather than a bolt.
+        const wob = Math.sin(f * 9.1 + c.ax * 0.05) * 13 * Math.sin(f * Math.PI) * k;
+        ctx.lineTo(c.ax + dx * f + nx * wob, c.ay + dy * f + ny * wob);
+      }
+      ctx.lineTo(c.bx, c.by);
+      ctx.strokeStyle = `hsla(${theme.orb}, 100%, 74%, ${0.85 * k})`;
+      ctx.lineWidth = 1.5 + 5 * k;
+      ctx.stroke();
+      ctx.strokeStyle = `hsla(${theme.orb}, 100%, 92%, ${0.9 * k})`;
+      ctx.lineWidth = 1.6 * k;
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   _drawBeam(ctx) {
