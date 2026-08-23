@@ -21,7 +21,7 @@ import { makeBeast, makeBoss, isBossWave, SplitBeast } from './entities/beasts/i
 import { drawHud, drawTitle, drawGameOver, drawFocus, drawInterlude, drawHelp, choiceHitTest, setChoiceLayout, tierHitTest } from './ui/hud.js';
 import { Quality } from './quality.js';
 import { touchButtons, touchHitTest, drawTouchButtons, drawRotate } from './ui/touch.js';
-import { drawProfiles, profileHitTest, nameButton, drawScores, MAX_ROWS } from './ui/profile.js';
+import { drawProfiles, profileHitTest, nameButton, drawScores, drawLeaderboard, MAX_ROWS } from './ui/profile.js';
 
 const W = 1280;
 const H = 720;
@@ -67,6 +67,7 @@ class Game {
     this.stateTime = 0;
     this.paused = false;
     this.help = false;
+    this.board = false;      // the full top-20 screen
     this.danger = 0;
     this.inputMode = 'type';
     this.choices = [];
@@ -149,13 +150,20 @@ class Game {
             this.profileIndex = Math.max(0, Math.min(this.profileIndex, this.profiles.list.length));
           }
         } else if (e.key === 'h' || e.key === 'H') this.help = !this.help;
+        else if (e.key === 't' || e.key === 'T') this.board = !this.board;
         return;
       }
 
-      // Instructions are reachable from anywhere, and swallow other keys while open.
+      // Instructions and the board are reachable from anywhere, and swallow
+      // other keys while open.
       if (e.key === 'h' || e.key === 'H') { this.help = !this.help; return; }
       if (this.help) {
         if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') this.help = false;
+        return;
+      }
+      if (e.key === 't' || e.key === 'T') { this.board = !this.board; return; }
+      if (this.board) {
+        if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') this.board = false;
         return;
       }
 
@@ -227,11 +235,13 @@ class Game {
       const py = ((ev.clientY - rect.top) / rect.height) * H;
 
       if (this.help) { this.help = false; return; }
+      if (this.board) { this.board = false; return; }
 
       // On-screen buttons sit above everything else.
       const btn = touchHitTest(px, py, touchButtons(this, W, H));
       if (btn) {
         if (btn === 'help') this.help = true;
+        else if (btn === 'board') this.board = true;
         else if (btn === 'pause') this.paused = !this.paused;
         else if (btn === 'beam') this._fireBeam();
         return;
@@ -905,6 +915,8 @@ class Game {
     // top of it -- a 94%-opaque scrim still lets big glowing text read through.
     if (this.help) {
       drawHelp(this.out, W, H, this);
+    } else if (this.board) {
+      drawLeaderboard(this.out, this, W, H);
     } else if (this.state === 'profile') {
       drawProfiles(this.out, this, W, H, this.time);
     } else {

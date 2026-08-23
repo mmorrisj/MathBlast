@@ -47,7 +47,15 @@ into one blurred learner — and its own personal bests. The score table is glob
 across profiles, because a shared leaderboard is the point of having names.
 
 Everything lives in `localStorage`; a run that beats a record says so on the
-game-over screen, and the top four sit under the title.
+game-over screen, and the top five sit under the title.
+
+The table holds **twenty** places. Twenty rows do not fit the gap the title
+screen has for them, so they get their own screen — **T**, or the ★ button on a
+phone — laid out as two columns of ten with the score, wave and difficulty each
+run was set on, and the run you just finished picked out in gold. The game-over
+screen already announced a placing (`#13 ON THE BOARD`) that the five-row
+preview could not show, which is most of the reason a deeper table needs a
+screen of its own.
 
 ![Choosing a player](docs/profiles.png)
 

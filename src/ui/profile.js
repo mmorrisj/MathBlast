@@ -163,7 +163,25 @@ export function nameButton(W, H) {
   return { x: W / 2 - 90, y: 386, w: 180, h: 56 };
 }
 
-// Shown on the title screen and after a run.
+// One row of the table. Shared by the compact preview and the full board so
+// the two cannot drift apart.
+function scoreRow(ctx, r, rank, x, y, w, hot, showTier) {
+  const gutter = showTier ? 148 : 96;
+  ctx.font = `${hot ? 700 : 400} 16px ${MONO}`;
+  ctx.textAlign = 'left';
+  ctx.fillStyle = hot ? '#fff2c8' : 'rgba(200,228,248,0.8)';
+  ctx.fillText(`${rank}.`, x - w / 2, y);
+  ctx.fillText(r.name, x - w / 2 + 44, y);
+  ctx.textAlign = 'right';
+  ctx.fillText(String(r.score), x + w / 2 - gutter, y);
+  ctx.fillStyle = hot ? 'rgba(255,226,150,0.8)' : 'rgba(150,190,220,0.55)';
+  ctx.font = `400 13px ${MONO}`;
+  ctx.fillText(`wave ${r.wave}`, x + w / 2 - (showTier ? 72 : 0), y);
+  if (showTier) ctx.fillText(r.tier, x + w / 2, y);
+}
+
+// The compact preview, shown on the title screen and after a run. The full
+// twenty live on the board screen -- there is only room for a handful here.
 export function drawScores(ctx, scores, x, y, W, opts = {}) {
   const rows = scores.list.slice(0, opts.limit || 5);
   ctx.save();
@@ -183,19 +201,68 @@ export function drawScores(ctx, scores, x, y, W, opts = {}) {
 
   const w = opts.width || 460;
   rows.forEach((r, i) => {
-    const ry = y + 30 + i * 26;
-    const hot = opts.highlight != null && opts.highlight === i + 1;
-    ctx.font = `${hot ? 700 : 400} 16px ${MONO}`;
-    ctx.textAlign = 'left';
-    ctx.fillStyle = hot ? '#fff2c8' : 'rgba(200,228,248,0.8)';
-    ctx.fillText(`${i + 1}.`, x - w / 2, ry);
-    ctx.fillText(r.name, x - w / 2 + 40, ry);
-    ctx.textAlign = 'right';
-    ctx.fillStyle = hot ? '#fff2c8' : 'rgba(200,228,248,0.8)';
-    ctx.fillText(String(r.score), x + w / 2 - 96, ry);
-    ctx.fillStyle = hot ? 'rgba(255,226,150,0.8)' : 'rgba(150,190,220,0.55)';
-    ctx.font = `400 13px ${MONO}`;
-    ctx.fillText(`wave ${r.wave}`, x + w / 2, ry);
+    scoreRow(ctx, r, i + 1, x, y + 30 + i * 26, w,
+             opts.highlight != null && opts.highlight === i + 1, false);
   });
+  ctx.restore();
+}
+
+const BOARD_COLS = 2;
+const BOARD_ROWS = 10;
+export const BOARD_SIZE = BOARD_COLS * BOARD_ROWS;
+
+// The full table. Twenty rows will not fit in the gap the title screen has for
+// them, so they get their own screen: two columns of ten, which reads as one
+// board rather than a list you have to scroll.
+export function drawLeaderboard(ctx, g, W, H) {
+  const list = g.scores.list.slice(0, BOARD_SIZE);
+  const place = g.lastRun ? g.lastRun.place : 0;
+  ctx.save();
+  ctx.fillStyle = 'rgba(4,6,16,0.94)';
+  ctx.fillRect(0, 0, W, H);
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'center';
+
+  ctx.font = `700 44px ${MONO}`;
+  ctx.fillStyle = '#eaf6ff';
+  ctx.shadowColor = `hsla(${theme.friendly},100%,60%,0.85)`;
+  ctx.shadowBlur = 30;
+  ctx.fillText(`TOP ${BOARD_SIZE}`, W / 2, 84);
+  ctx.shadowBlur = 0;
+
+  if (!list.length) {
+    ctx.font = `400 18px ${MONO}`;
+    ctx.fillStyle = 'rgba(150,190,220,0.55)';
+    ctx.fillText('no runs yet — be the first', W / 2, H / 2);
+  } else {
+    const colW = 520;
+    const gap = 60;
+    for (let i = 0; i < list.length; i++) {
+      const col = Math.floor(i / BOARD_ROWS);
+      const cx = W / 2 + (col - (BOARD_COLS - 1) / 2) * (colW + gap);
+      scoreRow(ctx, list[i], i + 1, cx, 176 + (i % BOARD_ROWS) * 40, colW,
+               place === i + 1, true);
+    }
+    // Column headings, drawn after the rows so they inherit nothing from them.
+    ctx.font = `700 12px ${MONO}`;
+    ctx.fillStyle = `hsla(${theme.friendly},90%,66%,0.6)`;
+    for (let c = 0; c < BOARD_COLS; c++) {
+      const cx = W / 2 + (c - (BOARD_COLS - 1) / 2) * (colW + gap);
+      ctx.textAlign = 'left';
+      ctx.fillText('PLAYER', cx - colW / 2 + 44, 140);
+      ctx.textAlign = 'right';
+      ctx.fillText('SCORE', cx + colW / 2 - 148, 140);
+      ctx.fillText('WAVE', cx + colW / 2 - 72, 140);
+      ctx.fillText('TIER', cx + colW / 2, 140);
+    }
+  }
+
+  ctx.textAlign = 'center';
+  ctx.font = `400 14px ${MONO}`;
+  ctx.fillStyle = 'rgba(150,190,220,0.6)';
+  ctx.fillText(`${list.length} of ${BOARD_SIZE} places filled`, W / 2, H - 88);
+  ctx.font = `600 15px ${MONO}`;
+  ctx.fillStyle = `hsla(${theme.friendly},90%,72%,0.9)`;
+  ctx.fillText(g.touch ? 'tap anywhere to go back' : 'T or ESC to go back', W / 2, H - 52);
   ctx.restore();
 }

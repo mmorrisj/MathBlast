@@ -7,7 +7,7 @@
 
 const PROFILE_KEY = 'mathblast.profiles.v2';
 const SCORE_KEY = 'mathblast.scores.v2';
-const MAX_SCORES = 10;
+const MAX_SCORES = 20;
 export const MAX_NAME = 12;
 
 const read = (key, fallback) => {

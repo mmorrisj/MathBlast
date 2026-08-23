@@ -470,9 +470,9 @@ export function drawTitle(ctx, W, H, t, g) {
 
   ctx.font = `600 15px ${MONO}`;
   ctx.fillStyle = `hsla(${theme.friendly},90%,72%,0.9)`;
-  ctx.fillText('H — HOW TO PLAY', W / 2, TIER_Y + TIER_H + 92);
+  ctx.fillText('H — HOW TO PLAY        T — TOP 20', W / 2, TIER_Y + TIER_H + 92);
 
-  if (g) drawScores(ctx, g.scores, W / 2, 250, W, { limit: 3, width: 420 });
+  if (g) drawScores(ctx, g.scores, W / 2, 250, W, { limit: 5, width: 420 });
 
   ctx.textAlign = 'center';
   ctx.font = `400 12px ${MONO}`;
@@ -610,12 +610,12 @@ export function drawHelp(ctx, W, H, g) {
 
   ctx.font = `400 13px ${MONO}`;
   ctx.fillStyle = 'rgba(140,180,215,0.5)';
-  ctx.fillText('P pause   ·   M mute   ·   Q quality   ·   C colour-safe   ·   R reduced motion',
+  ctx.fillText('P pause   ·   M mute   ·   Q quality   ·   C colour-safe   ·   R reduced motion   ·   T top 20',
                W / 2, H - 82);
 
   ctx.font = `700 15px ${MONO}`;
   ctx.fillStyle = 'rgba(255,232,170,0.9)';
-  ctx.fillText('H or ESC to close', W / 2, H - 56);
+  ctx.fillText(g.touch ? 'tap anywhere to close' : 'H or ESC to close', W / 2, H - 56);
   ctx.restore();
 }
 
@@ -669,11 +669,11 @@ export function drawGameOver(ctx, g, W, H, t) {
   }
 
   drawScores(ctx, g.scores, W / 2, H / 2 + 68, W,
-             { limit: 4, width: 420, highlight: run ? run.place : 0 });
+             { limit: 5, width: 420, highlight: run ? run.place : 0 });
 
   const a = 0.55 + Math.sin(t * 4) * 0.45;
   ctx.font = `700 20px ${MONO}`;
   ctx.fillStyle = `rgba(255,232,170,${a * fade})`;
-  ctx.fillText('ENTER to play again   ·   ESC to switch player', W / 2, H - 42);
+  ctx.fillText('ENTER to play again   ·   T for the full board   ·   ESC to switch player', W / 2, H - 42);
   ctx.restore();
 }
