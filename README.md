@@ -154,10 +154,13 @@ Fully synthesized — no audio assets, not even an impulse response.
 - **The arrangement escalates by sector.** Every three waves the track moves up
   a stage: a melodic hook enters and thickens (0 → 6 → 9 → 12 notes a bar), the
   bassline adds offbeat stabs, and a sidechain pump deepens from nothing to
-  0.54. Tempo runs 100 → 136 BPM. Each wave arrives on a build that is locked to
-  a bar line and schedules its own drop, so the interlude runs for exactly as
-  long as the music needs rather than a fixed count that lands wherever it
-  lands.
+  0.54. Tempo runs 100 → 136 BPM. Each wave arrives on a charge that is locked
+  to a bar line and schedules its own arrival, so the interlude runs for exactly
+  as long as the music needs rather than a fixed count that lands wherever it
+  lands. The charge is the tonic chord swelling in under a pulse that
+  accelerates into the bar line — pitched material only, peaking quieter than
+  the loudest tenth of ordinary play, so it reads as energy gathering rather
+  than a transition effect over the top of the score.
 - **The kit plays phrases, not a loop.** Each sector has its own sixteen-step
   pattern written as velocity strings, running 8 → 15 → 27 → 33 onsets a bar as
   the kick syncopates and ghost snares fill the gaps. Every four bars close on a
@@ -314,6 +317,13 @@ Two of them exist because of real failures the logic tests could not see:
 - The kit was gated on `danger > 0.62` in every sector, so most of a run had no
   percussion at all. The suite now probes the real gate by recording what
   `setDanger` asks the drum layer for, rather than restating the formula.
+- The wave transition was an EDM riser — noise sweeping to 4 kHz, an
+  accelerating snare roll, a sawtooth climbing a fifth, a film-trailer sub drop.
+  Rendered offline it peaked at RMS 0.35 against ordinary play's 0.12, so it was
+  nearly three times louder than the loudest tenth of the game it interrupted.
+  That is what "the sound aesthetic doesn't work" measures as. The charge that
+  replaced it sits at 0.099. A loudness assertion needs something to compare
+  against, so the suite now renders a reference bar of gameplay alongside it.
 
 The suite also opens a second, touch-enabled context at phone dimensions and
 drives the whole flow by tapping — profile creation, starting a run, answering,

@@ -717,10 +717,13 @@ async function main() {
   check('the drums arrive earlier every sector',
         drumGate.every((g, i) => i === 0 || g < drumGate[i - 1]) && drumGate[3] < 0.25);
 
-  // The wave build, rendered offline and measured. The first version used an
-  // exponential gain ramp, which is a factor of thousands and so stays
-  // inaudible until the last tenth -- it landed as a zip rather than a rise,
-  // and only listening or measuring catches that.
+  // The wave transition, rendered offline and measured. Two things have gone
+  // wrong here before and neither is visible in the source: an exponential gain
+  // ramp is a factor of thousands, so it stays inaudible until the last tenth
+  // and lands as a zip rather than a rise; and the riser that replaced it was
+  // nearly three times louder than the loudest tenth of ordinary play, which is
+  // what "the sound aesthetic doesn't work with the game" turned out to mean.
+  // Both need a reference to catch, so the suite renders gameplay too.
   const build = await state(async () => {
     const { Audio } = await import('/src/audio.js');
     const SR = 44100;
@@ -755,12 +758,48 @@ async function main() {
       // The swell must be audible early, not silent until the end.
       audibleEarly: curve[1] > curve[5] * 0.1,
       loudestAt: env.indexOf(Math.max(...env)) * 0.01,
+      maxRms: Math.max(...env),
     };
   });
   check('the wave build swells instead of spiking at the end',
         build.rises && build.audibleEarly && !(build.peak > 1));
-  check('the build lands on its drop, and the drop is the loudest moment',
+  check('the build lands on its arrival, and the arrival is its loudest moment',
         build.until > 1.5 && Math.abs(build.loudestAt - build.until) < 0.15);
+
+  // How loud ordinary play is, measured the same way, so the transition has
+  // something to be quieter than.
+  const play = await state(async () => {
+    const { Audio } = await import('/src/audio.js');
+    const SR = 44100;
+    const off = new OfflineAudioContext(1, SR * 5, SR);
+    const a = new Audio();
+    const realAC = window.AudioContext;
+    window.AudioContext = function () { return off; };
+    a.start();
+    window.AudioContext = realAC;
+    clearInterval(a.timer);
+    a.setWave(4);
+    a.silentUntil = 0;
+    // The mix at full danger: every stem up, two bars, and a combo hit.
+    const full = { pad: 0.5, bass: 0.55, arp: 0.34, drums: 0.6, lead: 0.26 };
+    for (const k in a.layerGain) a.layerGain[k].gain.value = full[k];
+    for (let s = 0; s < 32; s++) a._playStep(s, 0.05 + s * a.stepDur);
+    a.correct(3, 640, 1);
+
+    const d = (await off.startRendering()).getChannelData(0);
+    const frame = Math.floor(SR * 0.01);
+    const env = [];
+    for (let f = 0; (f + 1) * frame <= d.length; f++) {
+      let sum = 0;
+      for (let i = f * frame; i < (f + 1) * frame; i++) sum += d[i] * d[i];
+      const rms = Math.sqrt(sum / frame);
+      if (rms > 0) env.push(rms);
+    }
+    env.sort((x, y) => x - y);
+    return { p90: env[Math.floor(env.length * 0.9)] };
+  });
+  check('the wave transition sits inside the mix rather than over it',
+        build.maxRms < play.p90 && build.maxRms > play.p90 * 0.4);
 
   // --- scores and profile records -------------------------------------------
   const board = await state(() => {
