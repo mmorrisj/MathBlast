@@ -561,24 +561,43 @@ async function main() {
     const M = await import('/src/entities/beasts/index.js');
     const { tierById } = await import('/src/difficulty.js');
     const g = window.game;
-    const sweep = (id) => {
+    const sweep = (id, lastWave = 9) => {
       const tier = tierById(id);
       const seen = new Set();
-      let maxMult = 0;
-      for (let wave = 1; wave <= 9; wave++) {
-        for (let i = 0; i < 120; i++) {
+      let maxMult = 0, maxArith = 0, maxDivPart = 0, basics = 0, total = 0;
+      for (let wave = 1; wave <= lastWave; wave++) {
+        for (let i = 0; i < 300; i++) {
           const b = M.makeBeast(tier, wave, g.skill, 640, 100, 40);
-          seen.add(b.constructor.name);
-          if (b.constructor.name === 'MultBeast') maxMult = Math.max(maxMult, b.a, b.b);
+          const k = b.constructor.name;
+          seen.add(k);
+          total++;
+          if (k === 'MultBeast') maxMult = Math.max(maxMult, b.a, b.b);
+          // What a player actually reasons about. A division's dividend is a
+          // product of two single digits, so 81 / 9 is single-digit work even
+          // though 81 is not a single-digit number -- the parts are what count.
+          if (k === 'DivBeast') maxDivPart = Math.max(maxDivPart, b.b, b.value);
+          if (k === 'ArithBeast') { maxArith = Math.max(maxArith, b.a, b.b); basics++; }
         }
       }
-      return { kinds: [...seen].sort(), maxMult };
+      return { kinds: [...seen].sort(), maxMult, maxArith, maxDivPart,
+               basicShare: basics / total };
     };
-    return { easy: sweep('easy'), medium: sweep('medium'), hard: sweep('hard') };
+    return {
+      easy: sweep('easy', 20), medium: sweep('medium'), hard: sweep('hard'),
+    };
   });
-  check('easy is grade-3 only: adding, taking away, single-digit times tables',
-        JSON.stringify(kinds.easy.kinds) === '["ArithBeast","MultBeast"]' &&
-        kinds.easy.maxMult <= 9);
+  // Easy is single digit, everywhere, however long the run goes. Its addition
+  // used to open on `23 + 19` because the operand cap was `20 + wave * 6` for
+  // every tier, so the sweep runs to wave 20 rather than stopping at 9.
+  check('easy stays single digit: adding, taking away, times and sharing',
+        JSON.stringify(kinds.easy.kinds) === '["ArithBeast","DivBeast","MultBeast"]' &&
+        kinds.easy.maxMult <= 9 && kinds.easy.maxArith <= 9 && kinds.easy.maxDivPart <= 9);
+  // "focused mostly on addition and subtraction" -- so they have to stay the
+  // plurality of what spawns, not get crowded out as the roster widens.
+  check('adding and taking away stay the bulk of easy', kinds.easy.basicShare > 0.5);
+  // Medium is where the numbers get bigger rather than the ideas.
+  check('medium brings in two-digit adding and taking away',
+        kinds.medium.kinds.includes('ArithBeast') && kinds.medium.maxArith > 9);
   check('hard sends grade-7 work: integers, fraction sums, percents, powers',
         ['FracOpBeast', 'IntegerBeast', 'PercentBeast', 'PowerBeast']
           .every((k) => kinds.hard.kinds.includes(k)));

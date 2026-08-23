@@ -12,8 +12,8 @@ Chosen on the title screen and remembered per player.
 
 | | | |
 | --- | --- | --- |
-| **EASY** | Grade 3 | Addition and subtraction as base-ten blocks, single-digit times tables, a missing-addend boss. No negatives — grade 3 has not met them. |
-| **MEDIUM** | Grades 4–6 | Times tables to twelve, factoring and primes, unit fractions, additive inverses, a one-step equation boss. |
+| **EASY** | Grades 1–3 | Single-digit addition and subtraction as base-ten blocks, single-digit times tables, division as equal groups, a missing-addend boss. Nothing above nine, no negatives. |
+| **MEDIUM** | Grades 4–6 | Two-digit addition and subtraction, times tables to twelve, division, factoring and primes, unit fractions, additive inverses, a one-step equation boss. |
 | **HARD** | Grade 7 | Signed integer multiply and divide, fraction sums with unlike denominators, percentages, squares and roots, a two-step equation boss with negative solutions. |
 
 ![Easy tier](docs/tier-easy.png)
@@ -21,6 +21,18 @@ Chosen on the title screen and remembered per player.
 Easy draws addition and subtraction the way the material is taught: a rod is
 ten, a square is one, and subtraction strikes out the part being taken away —
 so a stuck player can count, exactly as they can count a `7 × 8` lattice.
+Division is equal groups: `24 ÷ 8` is eight rings of three, and the answer is
+what sits in one ring, so counting a single group is enough.
+
+**Each tier ramps at its own rate.** Descent speed and wave size used to be
+`34 + wave * 4` and `3 + wave * 1.4` for everybody, with only a per-tier
+multiplier on top — so Easy thickened as fast as Hard and had fourteen beasts
+falling in eleven seconds by wave ten, which is not a grade-2 experience. Easy
+now adds 1.6 px/s and 0.6 beasts a wave against Medium's 3 and 1.1, and both
+plateau. What Easy used to reach at wave ten it now reaches around wave thirty,
+with ten beasts rather than fourteen. The point of the tier is repetitions on
+the basics, and a curve that outruns the player after eight minutes does not
+give them any.
 
 ![Hard tier](docs/tier-hard.png)
 

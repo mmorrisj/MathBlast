@@ -8,7 +8,7 @@ import { theme, setThemeWave, setColorSafe, setReducedMotion } from './theme.js'
 import { Audio } from './audio.js';
 import { SkillTable, makeChoices } from './problems.js';
 import { Profiles, Scores, cleanName, MAX_NAME } from './profiles.js';
-import { TIERS, DEFAULT_TIER, tierById } from './difficulty.js';
+import { TIERS, DEFAULT_TIER, tierById, descentRate, waveCount } from './difficulty.js';
 import { Camera } from './fx/camera.js';
 import { Particles } from './fx/particles.js';
 import { Shockwaves } from './fx/shockwave.js';
@@ -616,7 +616,7 @@ class Game {
       this.beasts.push(b);
       this.boss = b;
     } else {
-      this.waveRemaining = Math.max(2, Math.round((3 + this.wave * 1.4) * this.tier.waveSize));
+      this.waveRemaining = waveCount(this.tier, this.wave);
       this.spawnTimer = 0.6;
     }
   }
@@ -650,7 +650,7 @@ class Game {
 
   _spawn() {
     const x = clamp(rand(W - 160, 160), 120, W - 120);
-    const speed = 34 + this.wave * 4 + rand(10);
+    const speed = descentRate(this.tier, this.wave) + rand(10);
     this.beasts.push(makeBeast(this.tier, this.wave, this.skill, x, -80 - rand(120), speed));
     this.waveRemaining--;
   }
