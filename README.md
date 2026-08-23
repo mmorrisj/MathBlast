@@ -154,8 +154,17 @@ adding a source file cannot silently break the offline build.
 
 Installed, it also does the things a page has to do for itself that an app gets
 from the OS: a wake lock so the screen does not dim mid-problem, an orientation
-lock, fullscreen on first touch, safe-area padding so a notch does not sit over
-the canvas, and Android's back button closing an overlay instead of the app.
+lock, safe-area padding so a notch does not sit over the canvas, and Android's
+back button closing an overlay instead of the app.
+
+Played in a browser tab rather than installed, the first tap asks for
+fullscreen and then locks landscape — in that order, because
+`screen.orientation.lock()` rejects unless the document is already fullscreen.
+It keeps asking on later taps rather than giving up after one refusal, so
+leaving fullscreen is recoverable, and stops after three consecutive refusals
+from a browser that will not allow it. Where it is refused outright the canvas
+sizes itself to `visualViewport` instead of `window.innerHeight`, so the
+playfield sits beside the browser's bar rather than behind it.
 
 No build step means any static host serves it straight from the repo root, and
 every shipped URL is relative so a subpath host works too — GitHub Pages, then

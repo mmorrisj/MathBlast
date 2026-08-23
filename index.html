@@ -28,6 +28,9 @@
   html, body {
     margin: 0;
     height: 100%;
+    /* Tracks the visible area as the browser's URL bar collapses. Ignored by
+       anything that does not know dvh, which then keeps the line above. */
+    height: 100dvh;
     background: #04060f;
     overflow: hidden;
     font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;

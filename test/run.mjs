@@ -1035,6 +1035,56 @@ async function main() {
   check('the on-screen board button opens the top 20 and a tap closes it',
         boardOpen && !(await pg.evaluate(() => window.game.board)));
 
+  // A phone browser's URL bar shrinks the *visual* viewport while
+  // window.innerHeight -- the layout viewport -- stays put. Sizing the canvas
+  // to innerHeight made it taller than the screen, so the top of the playfield
+  // sat behind the bar. Simulate the bar and check the canvas follows.
+  const bar = await pg.evaluate(() => {
+    const el = document.getElementById('game');
+    const layout = window.innerHeight;
+    const real = window.visualViewport;
+    const before = Math.round(el.getBoundingClientRect().height);
+    const fake = {
+      width: real.width,
+      height: real.height - 96,
+      addEventListener: real.addEventListener.bind(real),
+      removeEventListener: real.removeEventListener.bind(real),
+    };
+    Object.defineProperty(window, 'visualViewport', { get: () => fake, configurable: true });
+    window.game._fit();
+    const after = Math.round(el.getBoundingClientRect().height);
+    Object.defineProperty(window, 'visualViewport', { get: () => real, configurable: true });
+    window.game._fit();
+    return { layout, visible: Math.round(fake.height), before, after };
+  });
+  check('the canvas fits the visible viewport, not the space behind the URL bar',
+        bar.after <= bar.visible && bar.before > bar.visible && bar.layout === bar.before);
+
+  // The browser's URL bar and menu sit over the top of the playfield until the
+  // game goes fullscreen. Two bugs used to stop that: the orientation lock was
+  // requested *before* fullscreen (it rejects unless the document is already
+  // fullscreen), and the listener was `once`, so a single refusal left the
+  // browser chrome there for the rest of the session.
+  // Earlier touch tests have already tapped this page, so start from a known
+  // state rather than assuming the browser chrome is still showing.
+  await pg.evaluate(() => (document.fullscreenElement ? document.exitFullscreen() : null));
+  await pg.waitForTimeout(300);
+  const chrome = await pg.evaluate(() => ({ full: Boolean(document.fullscreenElement) }));
+  await tap(640, 300);
+  await pg.waitForTimeout(400);
+  const entered = await pg.evaluate(() => Boolean(document.fullscreenElement));
+  // Leaving and tapping again has to get it back -- this is what `once` broke.
+  // Guarded: exitFullscreen() on a document that is not fullscreen throws, and
+  // a thrown assertion is a crashed suite rather than a reported failure.
+  await pg.evaluate(() => (document.fullscreenElement ? document.exitFullscreen() : null));
+  await pg.waitForTimeout(300);
+  const left = await pg.evaluate(() => Boolean(document.fullscreenElement));
+  await tap(640, 300);
+  await pg.waitForTimeout(400);
+  const regained = await pg.evaluate(() => Boolean(document.fullscreenElement));
+  check('a tap hides the browser chrome, and leaving fullscreen is recoverable',
+        !chrome.full && entered && !left && regained);
+
   check('no runtime errors on the phone', mErrs.length === 0);
   if (mErrs.length) console.log(mErrs.join('\n'));
   await side.c.close();

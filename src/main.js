@@ -83,6 +83,12 @@ class Game {
     this._bindNameField();
     this._fit();
     window.addEventListener('resize', () => this._fit());
+    if (window.visualViewport) {
+      // A URL bar sliding away does not reliably fire window resize, so the
+      // canvas would keep its old size until something else forced a refit.
+      window.visualViewport.addEventListener('resize', () => this._fit());
+      window.visualViewport.addEventListener('scroll', () => this._fit());
+    }
     document.addEventListener('visibilitychange', () => { if (document.hidden) this.paused = true; });
   }
 
@@ -304,20 +310,39 @@ class Game {
       else if (this.state === 'playing') this.paused = true;
     });
 
-    // 2. Landscape, and full screen, on the first gesture. Installed from the
-    //    manifest both are already set; in a browser tab they are not, and the
-    //    lock call is only allowed from inside a user gesture.
+    // 2. Full screen, then landscape. Installed from the manifest both are
+    //    already set; in a browser tab neither is, and the browser's own bar
+    //    sits over the top of the playfield until this succeeds.
+    //
+    //    Order matters. screen.orientation.lock() rejects unless the document
+    //    is *already* fullscreen, so asking for the lock first -- which is what
+    //    this did at first -- means it always fails.
+    const el = document.documentElement;
+    const request = el.requestFullscreen || el.webkitRequestFullscreen;
+    const isFull = () => Boolean(document.fullscreenElement || document.webkitFullscreenElement);
+    let refusals = 0;
+
     const claim = () => {
-      if (screen.orientation && screen.orientation.lock) {
-        screen.orientation.lock('landscape').catch(() => { /* desktop, or refused */ });
-      }
-      if (this.touch && !document.fullscreenElement && document.documentElement.requestFullscreen) {
-        document.documentElement.requestFullscreen().catch(() => { /* refused */ });
-      }
-      wake();
+      if (!this.touch || !request || isFull() || refusals >= 3) return;
+      Promise.resolve(request.call(el, { navigationUI: 'hide' }))
+        .then(() => {
+          refusals = 0;
+          if (screen.orientation && screen.orientation.lock) {
+            return screen.orientation.lock('landscape');
+          }
+          return null;
+        })
+        .catch(() => { refusals++; });
     };
-    window.addEventListener('pointerdown', claim, { once: true });
-    window.addEventListener('keydown', claim, { once: true });
+    // Deliberately not `once`. A single refusal used to leave the browser bar
+    // over the game for the rest of the session; a tap that leaves fullscreen
+    // has to be recoverable too. Three consecutive refusals means the browser
+    // will not allow it at all, so stop asking.
+    window.addEventListener('pointerup', claim);
+    window.addEventListener('keydown', () => { claim(); wake(); });
+    window.addEventListener('pointerdown', wake);
+    // Leaving fullscreen changes the visible area; the canvas has to follow.
+    document.addEventListener('fullscreenchange', () => this._fit());
 
     // 3. Android's back button. Installed, there is no browser chrome to go
     //    back to, so an unhandled back closes the app -- from the middle of a
@@ -1015,8 +1040,14 @@ class Game {
   }
 
   _fit() {
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
+    // window.innerHeight is the *layout* viewport, which on a phone includes
+    // the strip behind the browser's URL bar. Sizing to it makes the canvas
+    // taller than what is on screen and pushes the top of the playfield --
+    // score, cores, the beasts you most need to see -- underneath the bar.
+    // visualViewport is the part actually visible.
+    const vv = window.visualViewport;
+    const vw = vv ? vv.width : window.innerWidth;
+    const vh = vv ? vv.height : window.innerHeight;
     // A 16:9 playfield on an upright phone is too small to read, so ask for
     // landscape rather than rendering something unplayable.
     this.portrait = this.touch && vh > vw;
