@@ -6,6 +6,7 @@ import { clamp, lerp, easeOutElastic, easeOutCubic, roundRect, TAU, showSigned }
 import { theme, bandNameFor } from '../theme.js';
 import { drawScores } from './profile.js';
 import { TIERS } from '../difficulty.js';
+import { planLabel } from '../adaptive.js';
 
 const MONO = '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace';
 
@@ -519,7 +520,10 @@ export function drawTitle(ctx, W, H, t, g) {
     }
     ctx.font = `400 14px ${MONO}`;
     ctx.fillStyle = 'rgba(170,210,240,0.75)';
-    ctx.fillText(TIERS[g.tierIndex].blurb, W / 2, TIER_Y + TIER_H + 24);
+    const sel = TIERS[g.tierIndex];
+    // Dynamic states its current ratio instead of a blurb. Adaptive difficulty
+    // that will not say what it is doing is just an unexplained spike.
+    ctx.fillText(sel.dynamic ? planLabel(g.plan) : sel.blurb, W / 2, TIER_Y + TIER_H + 24);
   }
 
   const a = 0.55 + Math.sin(t * 4) * 0.45;

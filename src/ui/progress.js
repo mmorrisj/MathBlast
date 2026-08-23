@@ -13,13 +13,14 @@ import { clamp, roundRect } from '../util.js';
 import { theme } from '../theme.js';
 import { conceptName } from '../progress.js';
 import { chartStats } from './starchart.js';
+import { planLabel, pct } from '../adaptive.js';
 
 const MONO = '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace';
 
 const ROW_H = 30;
 const TOP = 200;          // clear of the headline tiles above
 const LEFT = 64;
-const NAME_W = 210;
+const NAME_W = 290;   // concept name plus the level it has reached
 const BAR_X = LEFT + NAME_W + 12;
 const BAR_W = 150;
 const SEEN_X = BAR_X + BAR_W + 66;
@@ -81,6 +82,24 @@ export function drawProgress(ctx, g, W, H, today) {
   ctx.fillStyle = 'rgba(150,190,220,0.6)';
   ctx.fillText('progress report — everything here is stored on this device only', LEFT, 84);
 
+  // On Dynamic, say exactly what the game is currently sending and why. This
+  // is the page where "why did it get harder" gets answered.
+  if (g.tier && g.tier.dynamic) {
+    ctx.font = `700 11px ${MONO}`;
+    ctx.fillStyle = 'rgba(255,214,140,0.85)';
+    ctx.textAlign = 'right';
+    ctx.fillText('DYNAMIC DIFFICULTY', W - LEFT, 58);
+    ctx.font = `400 13px ${MONO}`;
+    ctx.fillStyle = 'rgba(200,228,248,0.85)';
+    ctx.fillText(planLabel(g.plan, 3), W - LEFT, 80);
+    ctx.font = `400 11px ${MONO}`;
+    ctx.fillStyle = 'rgba(150,190,220,0.55)';
+    const locked = g.plan.filter((e) => e.locked).length;
+    ctx.fillText(locked ? `${locked} concepts still locked behind their prerequisites`
+                        : 'every concept is in rotation', W - LEFT, 98);
+    ctx.textAlign = 'left';
+  }
+
   // Headline numbers.
   const tiles = [
     [String(totals.seen), 'problems answered'],
@@ -119,6 +138,16 @@ export function drawProgress(ctx, g, W, H, today) {
     ctx.font = `${untouched ? 400 : 600} 15px ${MONO}`;
     ctx.fillStyle = untouched ? 'rgba(150,190,220,0.42)' : 'rgba(215,238,255,0.95)';
     ctx.fillText(r.name, LEFT, y);
+    if (r.levelName) {
+      // Right-aligned into the gutter before the bar. Measuring the concept
+      // name to offset from it does not work: the measurement would have to
+      // happen under the row font, not the small one being set here.
+      ctx.font = `400 11px ${MONO}`;
+      ctx.fillStyle = 'rgba(150,190,220,0.5)';
+      ctx.textAlign = 'right';
+      ctx.fillText(r.levelName, BAR_X - 12, y + 1);
+      ctx.textAlign = 'left';
+    }
 
     bar(ctx, BAR_X, y, BAR_W, r.seen / busiest, theme.friendly, untouched);
 

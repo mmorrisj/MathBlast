@@ -532,7 +532,7 @@ async function main() {
   // every wave, every beast kind and every boss step.
   const consistency = await state(async () => {
     const M = await import('/src/entities/beasts/index.js');
-    const { TIERS } = await import('/src/difficulty.js');
+    const { BASE_TIERS: TIERS } = await import('/src/difficulty.js');
     const g = window.game;
     const bad = [];
     for (const tier of TIERS) {
@@ -608,7 +608,7 @@ async function main() {
 
   const bosses = await state(async () => {
     const M = await import('/src/entities/beasts/index.js');
-    const { TIERS } = await import('/src/difficulty.js');
+    const { BASE_TIERS: TIERS } = await import('/src/difficulty.js');
     const out = {};
     for (const tier of TIERS) {
       const b = M.makeBoss(tier, 6, 0, 0, 0);
@@ -1249,10 +1249,13 @@ async function main() {
     const { Progress, dayKey } = await import('/src/progress.js');
     const p = new Progress('test-progress');
     p.data = { concepts: {}, days: {}, runs: 0, firstSeen: dayKey() };
-    p.record('percent', true, 2.0);
-    p.record('percent', true, 4.0);
-    p.record('percent', false, 9.9);      // a wrong answer must not time anything
-    p.landed('percent');
+    p.record('percent', 0, true, 2.0);
+    p.record('percent', 0, true, 4.0);
+    p.record('percent', 0, false, 9.9);   // a wrong answer must not time anything
+    p.landed('percent', 0);
+    // A different level of the same concept is a separate row, but the parent
+    // page sums them: "how is percentages going" is one question.
+    p.record('percent', 1, true, 3.0);
     const row = p.summary().find((r) => r.id === 'percent');
     const untouched = p.summary().find((r) => r.id === 'power');
 
@@ -1274,12 +1277,16 @@ async function main() {
 
     return {
       row, untouched, yesterdayRun, acrossGap, stale, kept,
+      rowKeys: [...p.rowMap().keys()],
       recentLen: p.recent(30).length,
     };
   });
   check('the ledger records every concept, timing only correct answers',
-        ledger.row.seen === 3 && ledger.row.correct === 2 && ledger.row.landed === 1 &&
+        ledger.row.seen === 4 && ledger.row.correct === 3 && ledger.row.landed === 1 &&
         Math.abs(ledger.row.avgSeconds - 3) < 0.01);
+  check('levels are separate rows but one concept to a parent',
+        ledger.rowKeys.includes('percent@0') && ledger.rowKeys.includes('percent@1') &&
+        ledger.row.level === 1);
   check('a concept never practised reports as a gap, not as absent',
         ledger.untouched && ledger.untouched.seen === 0 && ledger.untouched.accuracy === 0);
   check('the streak survives a day not played yet and breaks on a real gap',
@@ -1296,6 +1303,104 @@ async function main() {
   });
   check('the progress page opens on G and closes on ESC',
         reportPage.open === true && reportPage.closed === false);
+
+  // --- dynamic difficulty -----------------------------------------------------
+  //
+  // The point of the mode: material that has been mastered recedes and material
+  // that has not arrives. Concept-by-concept, not a blend of the three fixed
+  // tiers -- mastering single-digit addition has to shrink *single-digit*
+  // addition, not "easy".
+  const adapt = await state(async () => {
+    const { Progress, dayKey } = await import('/src/progress.js');
+    const { plan, pickPlan } = await import('/src/adaptive.js');
+    const today = dayKey();
+    const fresh = () => {
+      const p = new Progress('test-adapt');
+      p.data = { concepts: {}, days: {}, runs: 0, firstSeen: today };
+      p.save = () => {};
+      return p;
+    };
+    const shareOf = (entries, id, level) => {
+      const e = entries.find((x) => x.id === id && x.level === level);
+      return e && !e.locked ? e.share : 0;
+    };
+    const master = (p, id, level, n = 60) => {
+      for (let i = 0; i < n; i++) p.record(id, level, true, 1.2);
+    };
+
+    // Cold start: only what has no prerequisites, at its first level.
+    const cold = plan(fresh(), today);
+    const coldOpen = cold.filter((e) => !e.locked).map((e) => `${e.id}@${e.level}`);
+
+    // Master single-digit addition and nothing else.
+    const p = fresh();
+    const before = shareOf(plan(p, today), 'add', 0);
+    master(p, 'add', 0);
+    const after = plan(p, today);
+    const addL1 = shareOf(after, 'add', 0);
+    const addL2 = shareOf(after, 'add', 1);
+
+    // Every concept mastered end to end: does anything ever spawn locked?
+    const full = fresh();
+    for (const id of ['add', 'sub', 'mult', 'div', 'factor', 'inverse', 'fraction',
+                      'power', 'percent', 'fracop', 'integer']) {
+      for (let lv = 0; lv < 3; lv++) master(full, id, lv);
+    }
+    const mature = plan(full, today);
+
+    // A weighted roll must never return something locked.
+    const lockedIds = new Set(cold.filter((e) => e.locked).map((e) => e.id));
+    let leaked = 0;
+    const coldPlan = fresh();
+    for (let i = 0; i < 400; i++) {
+      const got = pickPlan(cold, () => i / 400);
+      if (lockedIds.has(got.id)) leaked++;
+    }
+    return {
+      coldOpen, before, addL1, addL2, leaked,
+      matureLocked: mature.filter((e) => e.locked).length,
+      matureMin: Math.min(...mature.map((e) => e.share)),
+    };
+  });
+  check('a cold start opens only what has no prerequisites',
+        JSON.stringify(adapt.coldOpen) === '["add@0"]');
+  // The literal ask: mastering single-digit addition shrinks single-digit
+  // addition and brings in two-digit.
+  check('mastering a level shrinks it and promotes to the next',
+        adapt.addL1 < adapt.before * 0.25 && adapt.addL2 > adapt.addL1 * 3);
+  // The first version dropped cleared levels to exactly zero. A shrinking
+  // share has to mean a trickle, or there is no spaced retrieval at all.
+  check('a cleared level keeps a share rather than switching off',
+        adapt.addL1 > 0);
+  check('a locked concept never spawns', adapt.leaked === 0);
+  check('everything unlocks eventually and nothing starves',
+        adapt.matureLocked === 0 && adapt.matureMin > 0);
+
+  // A plan has to build the beast it names. Two concepts are named differently
+  // from the case that builds them, and unmapped they would silently fall
+  // through to multiplication.
+  const planned = await state(async () => {
+    const M = await import('/src/entities/beasts/index.js');
+    const { tierById } = await import('/src/difficulty.js');
+    const { CURRICULUM } = await import('/src/curriculum.js');
+    const g = window.game;
+    const tier = tierById('dynamic');
+    const out = {};
+    for (const c of CURRICULUM) {
+      for (let lv = 0; lv < c.levels.length; lv++) {
+        const b = M.makeBeast(tier, 5, g.skill, 640, 100, 40, { id: c.id, level: lv });
+        const key = `${c.id}@${lv}`;
+        out[key] = { concept: b.concept, level: b.level, ok: b.accepts(b.answerText) };
+      }
+    }
+    return out;
+  });
+  const wrongKind = Object.entries(planned).filter(([k, v]) => !k.startsWith(`${v.concept}@`));
+  const wrongLevel = Object.entries(planned).filter(([k, v]) => k !== `${v.concept}@${v.level}`);
+  const wrongAnswer = Object.entries(planned).filter(([, v]) => !v.ok);
+  check('a plan builds the concept and level it names, and it answers itself',
+        wrongKind.length === 0 && wrongLevel.length === 0 && wrongAnswer.length === 0);
+  if (wrongKind.length) console.log('wrong kind:', wrongKind.map(([k, v]) => `${k}->${v.concept}`).join(' '));
 
   // --- installable app ------------------------------------------------------
   //

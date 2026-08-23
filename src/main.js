@@ -10,6 +10,7 @@ import { SkillTable, makeChoices } from './problems.js';
 import { Profiles, Scores, cleanName, MAX_NAME } from './profiles.js';
 import { Progress } from './progress.js';
 import { TIERS, DEFAULT_TIER, tierById, descentRate, waveCount } from './difficulty.js';
+import { plan as planFor, pickPlan, paceWave } from './adaptive.js';
 import { Camera } from './fx/camera.js';
 import { Particles } from './fx/particles.js';
 import { Shockwaves } from './fx/shockwave.js';
@@ -75,6 +76,9 @@ class Game {
     this.board = false;      // the full top-20 screen
     this.sky = false;        // the star chart
     this.report = false;     // the progress page, for a parent
+    // Recomputed at each wave boundary rather than per spawn, so a wave is a
+    // coherent set rather than drifting under the player mid-wave.
+    this.plan = [];
     this.danger = 0;
     this.inputMode = 'type';
     this.choices = [];
@@ -582,7 +586,7 @@ class Game {
     const freebie = !correct && t.prime && !t.revealed;
     // The freebie is excluded here too, or a parent's page would show a miss
     // for the one attempt the game deliberately does not count as one.
-    if (!freebie) this.progress.record(t.concept, correct, elapsed);
+    if (!freebie) this.progress.record(t.concept, t.level || 0, correct, elapsed);
     if (t.a != null && t.b != null) {
       // The skill table has always known when a fact tipped over into being
       // known. Saying so is most of why anyone would care that it tracks.
@@ -647,6 +651,7 @@ class Game {
 
   _nextWave() {
     this.wave++;
+    if (this.tier.dynamic) this.plan = planFor(this.progress, dayKey());
     setThemeWave(this.wave);
     this.audio.setWave(this.wave);
     this.waveBanner = 2.2;
@@ -660,7 +665,7 @@ class Game {
       this.beasts.push(b);
       this.boss = b;
     } else {
-      this.waveRemaining = waveCount(this.tier, this.wave);
+      this.waveRemaining = waveCount(this.tier, this._paceWave());
       this.spawnTimer = 0.6;
     }
   }
@@ -693,10 +698,18 @@ class Game {
     }
   }
 
+  // Dynamic has no ramp of its own: it paces off the difficulty of the
+  // material currently in rotation rather than off the wave number alone.
+  _paceWave() {
+    return this.tier.dynamic ? paceWave(this.plan, this.wave) : this.wave;
+  }
+
   _spawn() {
     const x = clamp(rand(W - 160, 160), 120, W - 120);
-    const speed = descentRate(this.tier, this.wave) + rand(10);
-    this.beasts.push(makeBeast(this.tier, this.wave, this.skill, x, -80 - rand(120), speed));
+    const speed = descentRate(this.tier, this._paceWave()) + rand(10);
+    const pick = this.tier.dynamic ? pickPlan(this.plan) : null;
+    this.beasts.push(
+      makeBeast(this.tier, this.wave, this.skill, x, -80 - rand(120), speed, pick));
     this.waveRemaining--;
   }
 
@@ -845,7 +858,7 @@ class Game {
 
   // A beast completed its journey: descenders hit the dome, risers escape.
   _arrive(b) {
-    this.progress.landed(b.concept);
+    this.progress.landed(b.concept, b.level || 0);
     const pw = power(b.magnitude);
     this.combo = 0;
     this.waveMisses++;

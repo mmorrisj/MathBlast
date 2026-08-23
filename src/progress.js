@@ -10,6 +10,7 @@
 // Everything is localStorage on the device. Nothing is sent anywhere.
 
 import { clamp } from './util.js';
+import { rowKey, splitKey, levelName } from './curriculum.js';
 
 const KEY = 'mathblast.progress.v1';
 const DAYS_KEPT = 120;
@@ -57,12 +58,20 @@ export class Progress {
     this.load();
   }
 
-  // One answered problem. `correct` false is a wrong answer, not a miss by
-  // omission -- a beast that lands unanswered is recorded by `landed`.
-  record(concept, correct, seconds) {
-    const c = this.data.concepts[concept] || (this.data.concepts[concept] = {
+  _row(key) {
+    return this.data.concepts[key] || (this.data.concepts[key] = {
       seen: 0, correct: 0, totalMs: 0, landed: 0, last: '',
     });
+  }
+
+  // One answered problem. `correct` false is a wrong answer, not a miss by
+  // omission -- a beast that lands unanswered is recorded by `landed`.
+  //
+  // Keyed by concept *and* level: promoting from single-digit to two-digit
+  // addition has to land on an empty row, or the adaptive weighting would
+  // treat the new material as already mastered.
+  record(concept, level, correct, seconds) {
+    const c = this._row(rowKey(concept, level));
     c.seen++;
     if (correct) {
       c.correct++;
@@ -79,10 +88,8 @@ export class Progress {
 
   // A beast reached the dome with its problem unanswered. Worth separating:
   // "got it wrong" and "ran out of time" are different things to a parent.
-  landed(concept) {
-    const c = this.data.concepts[concept] || (this.data.concepts[concept] = {
-      seen: 0, correct: 0, totalMs: 0, landed: 0, last: '',
-    });
+  landed(concept, level = 0) {
+    const c = this._row(rowKey(concept, level));
     c.landed++;
     this.save();
   }
@@ -93,22 +100,45 @@ export class Progress {
     this.save();
   }
 
-  // Per concept, in curriculum order, including the ones never touched -- a
-  // gap in coverage is the most useful thing on the page and it cannot show as
-  // an absent row.
+  // Rows keyed by `concept@level`, for the adaptive weighting.
+  rowMap() {
+    const m = new Map();
+    for (const [key, c] of Object.entries(this.data.concepts)) {
+      m.set(key, { ...c, accuracy: c.seen ? c.correct / c.seen : 0 });
+    }
+    return m;
+  }
+
+  // Per concept, in curriculum order, summed across its levels -- a parent
+  // wants "how is subtraction going", not four rows of it. Includes concepts
+  // never touched: a gap in coverage is the most useful thing on the page and
+  // it cannot show as an absent row.
   summary() {
+    const byConcept = new Map();
+    for (const [key, c] of Object.entries(this.data.concepts)) {
+      const { concept, level } = splitKey(key);
+      const acc = byConcept.get(concept) || { seen: 0, correct: 0, totalMs: 0, landed: 0, last: '', top: 0 };
+      acc.seen += c.seen;
+      acc.correct += c.correct;
+      acc.totalMs += c.totalMs;
+      acc.landed += c.landed;
+      if (c.last > acc.last) acc.last = c.last;
+      if (c.seen > 0) acc.top = Math.max(acc.top, level);
+      byConcept.set(concept, acc);
+    }
     return CONCEPTS.map((meta) => {
-      const c = this.data.concepts[meta.id];
+      const c = byConcept.get(meta.id);
       const seen = c ? c.seen : 0;
-      const correct = c ? c.correct : 0;
       return {
         ...meta,
         seen,
-        correct,
+        correct: c ? c.correct : 0,
         landed: c ? c.landed : 0,
-        accuracy: seen ? correct / seen : 0,
-        avgSeconds: correct ? c.totalMs / correct / 1000 : 0,
+        accuracy: seen ? c.correct / seen : 0,
+        avgSeconds: c && c.correct ? c.totalMs / c.correct / 1000 : 0,
         last: c ? c.last : '',
+        level: c ? c.top : 0,
+        levelName: c && seen ? levelName(meta.id, c.top) : '',
       };
     });
   }
