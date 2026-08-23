@@ -27,6 +27,26 @@ is set up for.
 - Wake lock, orientation lock, fullscreen-on-first-touch, safe-area insets, and
   Android's back button closing overlays instead of the app.
 
+## Getting it onto a phone today, without any of this
+
+The fastest way to see MathBlast as an app is to skip the build entirely.
+Because the game is served straight from the repo root with no build step,
+GitHub Pages can host it as-is:
+
+**Settings → Pages → Source: "Deploy from a branch" → `main` → `/ (root)`**
+
+A minute later it is live at `https://<user>.github.io/<repo>/`. Open that in
+Chrome on the phone and use **⋮ → Add to Home screen**. What you get is the
+same app the Play Store build would install: its own icon, no browser chrome,
+fullscreen and landscape-locked, and it keeps working with the network off.
+
+What it does *not* get you is a Play Store listing — no search, no install
+count, no way for anyone to find it who does not have the link. That is the
+only thing the rest of this document buys.
+
+Every URL the app ships is relative so that this works from a subpath; a test
+asserts it, because one absolute path is enough to break it.
+
 ## Building the app
 
 ```sh
