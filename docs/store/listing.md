@@ -35,9 +35,15 @@ full of ad-supported free apps is looking for exactly that sentence.
 > unbreakable. A fraction crystal has a wedge missing and facets you can count.
 > A child who is stuck can always count something on the screen.
 >
-> **THREE DIFFICULTIES, THREE CURRICULUMS**
+> **IT MOVES WITH YOUR CHILD**
 >
-> Not the same questions sped up — each tier teaches different material.
+> Pick DYNAMIC and the game starts at single-digit addition and opens the
+> curriculum as each concept is mastered. Material they have got recedes to a
+> trickle; material they have never met arrives. You do not have to know which
+> grade to choose, and you do not have to keep changing it.
+>
+> Or pick a fixed tier — they are three different curriculums, not the same
+> questions sped up.
 >
 > • EASY (grades 1–3) — single-digit adding and subtracting shown as base-ten
 > blocks, times tables to nine, division as equal groups. Nothing above nine.
@@ -101,7 +107,8 @@ full of ad-supported free apps is looking for exactly that sentence.
 
 **Target audience**
 - Age groups: 5 and under is too young for the reading; **6–8, 9–12 and 13–15**
-  match the three tiers, with 16+ also true.
+  match the three fixed tiers, with 16+ also true. DYNAMIC spans all of them,
+  which is a reason to declare the range rather than narrow it.
 - Appeals to children: **yes**. This opts the app into the Families policy,
   which requires no ads or only certified non-personalised ones, no uncertified
   SDKs, and no unfenced external links. MathBlast has none of the three.

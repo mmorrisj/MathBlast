@@ -14,6 +14,7 @@ Chosen on the title screen and remembered per player.
 | --- | --- | --- |
 | **EASY** | Grades 1–3 | Single-digit addition and subtraction as base-ten blocks, single-digit times tables, division as equal groups, a missing-addend boss. Nothing above nine, no negatives. |
 | **MEDIUM** | Grades 4–6 | Two-digit addition and subtraction, times tables to twelve, division, factoring and primes, unit fractions, additive inverses, a one-step equation boss. |
+| **DYNAMIC** | Adapts | Starts as single-digit addition and opens the curriculum as each concept is mastered. Mastered material recedes to a trickle instead of vanishing. |
 | **HARD** | Grade 7 | Signed integer multiply and divide, fraction sums with unlike denominators, percentages, squares and roots, a two-step equation boss with negative solutions. |
 
 ![Easy tier](docs/tier-easy.png)
@@ -158,7 +159,7 @@ plate absorbs a landing that would otherwise cost a core.
 ## Installing it as an app
 
 The game is an installable PWA: a manifest that asks for fullscreen and
-landscape, maskable icons, and a service worker that precaches all 43 files. It
+landscape, maskable icons, and a service worker that precaches all 45 files. It
 boots and plays with the network off — the typeface ships in `assets/font/`
 rather than coming off Google Fonts, which an installed app cannot reach on a
 plane. `npm test` fails if the precache list drifts from what is on disk, so
@@ -211,6 +212,38 @@ Fixing this surfaced a bug it would have put on screen: facts were keyed
 weighting mixed them and the game-over list rendered both as `7×8`. The op is
 part of the key now, and records saved before it are read as multiplication,
 which is what they were.
+
+## Dynamic difficulty
+
+A fourth option beside Easy, Medium and Hard. It is not a blend of them: what a
+learner needs is for the material they have mastered to recede and the material
+they have not to arrive, and that happens concept by concept, not tier by tier.
+
+Every concept-and-level carries a weight that falls as it is mastered, and the
+spawn roster is drawn from those weights. Mastering single-digit addition does
+two things at once — single-digit addition's own weight collapses, and the
+concept promotes to two digits, whose row in the ledger is empty and therefore
+heavy. A concept's share over time is a wave that moves up the levels, not a
+line that only falls. Simulated over two thousand problems:
+
+```
+problems | single-digit add | two-digit add | larger sums  | tables to 9
+     200 |               4% |           31% |          0%  |         0%
+     400 |               2% |            4% |         28%  |         0%
+     600 |               1% |            2% |         10%  |         0%
+     800 |               1% |            2% |          8%  |        52%
+    1400 |               1% |            1% |          4%  |         7%
+    2000 |               1% |            1% |          5%  |         1%
+```
+
+Mastered levels keep a thin share rather than switching off — spaced retrieval
+is why the basics stay in rotation at all. A concept stays locked until its
+prerequisites are solid, so a child who has not met multiplication is never
+shown a fraction, and the ledger is the only source of truth: there is no second
+copy of "how far along are they" to drift out of sync.
+
+The live ratio is on the title screen and the progress report. Adaptive
+difficulty that will not say what it is doing is just an unexplained spike.
 
 ## Progress report — `G`
 

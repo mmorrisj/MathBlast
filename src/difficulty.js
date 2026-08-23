@@ -66,7 +66,36 @@ export const TIERS = [
     div: { divisor: 12, quotient: 12 },
     boss: 'twostep',          // 3x - 7 = 20, and negative solutions
   },
+  {
+    // Not a curriculum of its own: it draws from the three above in a ratio
+    // set by what the player has actually covered and answered well. Starts as
+    // pure Easy and stays there until there is evidence to move. The live ratio
+    // is shown on the title screen and in the progress report -- adaptive
+    // difficulty that hides what it is doing is just an unexplained
+    // difficulty spike.
+    id: 'dynamic',
+    name: 'DYNAMIC',
+    grade: 'Adapts',
+    blurb: 'starts easy and follows what you have covered',
+    dynamic: true,
+    // Pace is blended per run; these are the cold-start values, which are
+    // Easy's, and what a caller gets if it never asks for a blend.
+    speed: 0.78,
+    speedBase: 30,
+    speedStep: 1.6,
+    speedCap: 92,
+    waveBase: 3,
+    waveStep: 0.6,
+    waveCap: 10,
+    multMax: 9,
+    add: { lo: 1, hi0: 5, hi: 9, step: 1 },
+    div: { divisor: 9, quotient: 9 },
+    boss: 'missing',
+  },
 ];
+
+// The three real curricula, in order. Dynamic draws from these.
+export const BASE_TIERS = TIERS.filter((t) => !t.dynamic);
 
 export const DEFAULT_TIER = 'medium';
 
@@ -111,6 +140,10 @@ export function roster(tier, wave) {
     if (wave >= 3) r.push(['fracop', 6 + Math.min(wave, 6)]);
     return r;
   }
+  // Dynamic resolves to one of the three above before a beast is built, so a
+  // roster is never asked of it. Falling through to Medium's would be a silent
+  // wrong answer rather than a loud one.
+  if (tier.dynamic) throw new Error('roster: dynamic must be resolved to a base tier first');
   // Medium. Two-digit adding and taking away are new here -- this is the tier
   // where the numbers get bigger rather than the ideas -- so the abstract
   // beasts arrive a couple of waves later than they used to.

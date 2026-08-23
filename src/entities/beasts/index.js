@@ -7,6 +7,7 @@
 import { clamp, randInt, isPrime, gcd } from '../../util.js';
 import { makeProblem } from '../../problems.js';
 import { pickKind, addCap } from '../../difficulty.js';
+import { levelSpec } from '../../curriculum.js';
 import { MultBeast } from './mult.js';
 import { SplitBeast } from './split.js';
 import { FractionBeast } from './fraction.js';
@@ -46,9 +47,47 @@ function fractionPair(wave) {
   return { p: Math.max(1, p), q };
 }
 
-export function makeBeast(tier, wave, skill, x, y, speed) {
+const KIND_FOR_CONCEPT = { factor: 'split', inverse: 'void', mult: 'mult' };
+
+// Dynamic mode hands in a {id, level} plan instead of letting the tier's
+// roster roll. The level supplies the ranges, and -- for the generators whose
+// only difficulty knob is the wave number -- an equivalent wave, so eleven
+// generators did not have to be rewritten to take a level.
+export function planToTier(tier, plan) {
+  const spec = levelSpec(plan.id, plan.level);
+  return {
+    tier: { ...tier, ...(spec.add ? { add: spec.add } : {}),
+            ...(spec.div ? { div: spec.div } : {}),
+            ...(spec.multMax ? { multMax: spec.multMax } : {}),
+            id: spec.hard ? 'hard' : tier.id },
+    wave: spec.wave,
+  };
+}
+
+export function makeBeast(tier, wave, skill, x, y, speed, plan = null) {
+  const b = buildBeast(tier, wave, skill, x, y, speed, plan);
+  // The level travels with the beast so the ledger can record which level the
+  // answer belonged to -- without it a promotion would keep writing into the
+  // row it was promoted out of.
+  b.level = plan ? plan.level : 0;
+  return b;
+}
+
+function buildBeast(tier, wave, skill, x, y, speed, plan) {
   const s = speed * tier.speed;
-  switch (pickKind(tier, wave)) {
+  let kind;
+  if (plan) {
+    const resolved = planToTier(tier, plan);
+    tier = resolved.tier;
+    wave = resolved.wave;
+    // Two concepts are named differently from the switch case that builds
+    // them. Left unmapped they would fall through to the default -- which is
+    // multiplication -- and factoring and inverses would never appear at all.
+    kind = KIND_FOR_CONCEPT[plan.id] || plan.id;
+  } else {
+    kind = pickKind(tier, wave);
+  }
+  switch (kind) {
     case 'add': {
       const p = makeArith('+', wave, tier.add, addCap(tier, wave));
       return new ArithBeast(p.a, p.b, p.op, x, y, s * 0.94);
@@ -87,6 +126,7 @@ export function makeBeast(tier, wave, skill, x, y, speed) {
       const p = makePower(wave);
       return new PowerBeast(p.n, p.mode, x, y, s * 0.86);
     }
+    case 'mult':
     default: {
       const { a, b } = makeProblem(skill, wave, tier.multMax);
       return new MultBeast(a, b, x, y, s);
