@@ -158,7 +158,7 @@ plate absorbs a landing that would otherwise cost a core.
 ## Installing it as an app
 
 The game is an installable PWA: a manifest that asks for fullscreen and
-landscape, maskable icons, and a service worker that precaches all 41 files. It
+landscape, maskable icons, and a service worker that precaches all 43 files. It
 boots and plays with the network off — the typeface ships in `assets/font/`
 rather than coming off Google Fonts, which an installed app cannot reach on a
 plane. `npm test` fails if the precache list drifts from what is on disk, so
@@ -211,6 +211,40 @@ Fixing this surfaced a bug it would have put on screen: facts were keyed
 weighting mixed them and the game-over list rendered both as `7×8`. The op is
 part of the key now, and records saved before it are read as multiplication,
 which is what they were.
+
+## Progress report — `G`
+
+![The progress report](docs/progress.png)
+
+A page for whoever is keeping an eye on the practice. Concepts in curriculum
+order, each with its share of the practice, how many were answered, how many
+correctly, how long they take and when they were last met — plus the ones never
+touched at all, which are the most useful rows on the page and so cannot be
+absent ones.
+
+Three deliberate choices:
+
+- **Coverage and accuracy are separate columns.** "Never seen" and "seen and
+  struggling" need completely different responses, and one blended number hides
+  which you are looking at.
+- **Under a dozen answers, the percentage is marked and greyed.** A confident
+  63% off four attempts is noise dressed as a finding.
+- **"Ran out of time" is counted apart from "got it wrong."** A beast that
+  reached the dome unanswered is a different conversation from a wrong answer.
+
+There is no grade and no percentile. This is one game's telemetry, not an
+assessment, and presenting it as a mark out of ten would claim more than the
+data supports.
+
+Building it turned up the reason it was needed: the skill table only ever
+recorded facts carrying an `(a, b)` pair — **four of the twelve beast types**.
+Factoring, fractions, fraction arithmetic, percents, powers, additive inverses
+and the equation bosses recorded *nothing*, so half the curriculum was
+invisible and a coverage page would have implied it was never practised. Every
+beast now declares a `concept`, and a test spawns thousands across all three
+tiers to assert none of them falls through.
+
+Everything is `localStorage` on the device. Nothing is sent anywhere.
 
 ## Chaining
 

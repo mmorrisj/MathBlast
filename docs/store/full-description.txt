@@ -29,6 +29,11 @@ that into a sky — one star per times-table fact, brightening as it is learned,
 joining into a constellation when a whole row is mastered. "I've got my
 fives" becomes something you can see.
 
+A progress page shows a parent the whole curriculum at once — which topics
+have been practised, which are going well, which have not been touched yet.
+Coverage and accuracy are kept separate, because "never seen it" and "seen it
+and struggling" need different responses.
+
 Everything stays on the device. Two children sharing a tablet get their own
 progress rather than averaging into one blurred learner.
 

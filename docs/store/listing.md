@@ -54,6 +54,11 @@ full of ad-supported free apps is looking for exactly that sentence.
 > joining into a constellation when a whole row is mastered. "I've got my
 > fives" becomes something you can see.
 >
+> A progress page shows a parent the whole curriculum at once — which topics
+> have been practised, which are going well, which have not been touched yet.
+> Coverage and accuracy are kept separate, because "never seen it" and "seen it
+> and struggling" need different responses.
+>
 > Everything stays on the device. Two children sharing a tablet get their own
 > progress rather than averaging into one blurred learner.
 >
@@ -115,5 +120,5 @@ learning, kids, offline, arcade
 | --- | --- | --- |
 | App icon | 512×512 | `assets/icons/icon-512.png` ✅ |
 | Feature graphic | 1024×500 | `docs/store/feature-graphic.jpg` ✅ — JPEG because Play's feature graphic must carry no alpha channel, and a canvas PNG always does |
-| Phone screenshots (≥2, landscape) | ≥1080px wide | `docs/*.png` — `screenshot.png`, `tier-easy.png`, `boss.png`, `starchart.png`, `orbs.png`, `near-miss.png` ✅ |
+| Phone screenshots (≥2, landscape) | ≥1080px wide | `docs/*.png` — `screenshot.png`, `tier-easy.png`, `boss.png`, `starchart.png`, `progress.png`, `orbs.png`, `near-miss.png` ✅ |
 | Promo video (optional) | YouTube URL | Not made yet — lifts conversion more than any other single asset |

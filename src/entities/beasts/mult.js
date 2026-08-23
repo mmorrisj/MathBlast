@@ -24,6 +24,7 @@ export class MultBeast extends Beast {
 
   get magnitude() { return this.a * this.b; }
   get promptText() { return `${this.a} × ${this.b}`; }
+  get concept() { return 'mult'; }
   get answerText() { return String(this.a * this.b); }
   accepts(raw) { return toInt(raw) === this.a * this.b; }
 

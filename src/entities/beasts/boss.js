@@ -29,6 +29,8 @@ export class BossBeast extends Beast {
     return Math.max(40, Math.abs(parseInt(this.steps[0].answer, 10) || 20) * 2.4);
   }
 
+  get concept() { return 'equation'; }
+
   get promptText() { return this.steps[Math.min(this.stage, this.stages - 1)].prompt; }
   get hintText() { return this.steps[Math.min(this.stage, this.stages - 1)].hint; }
   get answerText() { return this.steps[Math.min(this.stage, this.stages - 1)].answer; }

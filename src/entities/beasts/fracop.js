@@ -62,6 +62,8 @@ export class FracOpBeast extends Beast {
   }
 
   get magnitude() { return this.q1 * this.q2 * 0.8; }
+  get concept() { return 'fracop'; }
+
   get promptText() { return `${this.p1}/${this.q1} ${this.op} ${this.p2}/${this.q2}`; }
   get hintText() { return `${this.promptText} =   (as p/q)`; }
   get answerText() { return this.rq === 1 ? String(this.rp) : `${this.rp}/${this.rq}`; }

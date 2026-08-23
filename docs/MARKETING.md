@@ -8,7 +8,7 @@ what that actually takes, written against what is in this repo today.
 
 The two features usually named as the reason to buy the app — **offline play**
 and **saving progress** — are already in the free web version, and not by
-accident. `sw.js` precaches all 41 files, `npm test` fails if that list drifts
+accident. `sw.js` precaches all 43 files, `npm test` fails if that list drifts
 from disk, and there is a test asserting the game boots and plays with the
 network off. `src/profiles.js` keeps a per-player fact history in
 `localStorage`, and the star chart draws it back. Add to Home screen on a phone
@@ -28,25 +28,35 @@ of small open projects fund themselves and it is completely defensible — but
 conversion is low, and it only works if the pitch is honest about what it is:
 *this is the same game, buying it pays for the work.*
 
-**Build something for buyers that does not exist yet.** The strongest candidate
-is already 90% present in the data model and shown to nobody: `problems.js`
-keeps `{ema, misses, seen}` for every fact, per profile. That is a **progress
-report** — what this child knows cold, what they are slow on, what they have not
-met yet — and it is the thing a parent or a teacher would actually pay three
-dollars for. It needs no server and no data collection: the report is generated
-on the device from data that is already there, and exported as a file the parent
-keeps. Pair it with **backup and restore**, which the web version genuinely
-cannot do well, because a browser can drop `localStorage` (a cache clear does
-it, and iOS evicts storage for sites that are visited and not installed).
+**Build something for buyers that does not exist yet.** This is where the
+obvious candidate went. The progress report was the answer here — per-concept
+coverage and accuracy for a parent — and it now exists (`src/progress.js`,
+`src/ui/progress.js`), in the free version, which is the right place for it: it
+is the single best argument the game has and hiding it behind a paywall would
+have cost more in reach than it earned in sales. It also turns out to be a much
+bigger thing than a view over the old skill table, because that table only
+recorded facts carrying an `(a, b)` pair — four of the twelve beast types.
+
+So the report is spent as a paid feature, and what is left is narrower and
+should be stated plainly: **backup and restore**. It is the one storage job a
+browser genuinely does badly — a cache clear drops `localStorage`, and iOS
+evicts storage for sites that are visited but not installed — and it is now
+worth more than it was, because there is a real progress history to lose.
+Export a profile plus its ledger to a file the parent keeps; import it back on
+a new device. No server, nothing collected, and it stays true to the promise.
 
 **Limit the demo.** Cap the free version at EASY, or at wave 9, and sell the
 rest. Higher conversion, and the option I would take last: the free version is
 currently the entire marketing asset, and cutting it down to a trailer costs
 more reach than the extra conversions are likely to be worth at this price.
 
-My recommendation is the second, layered on the first. Nothing is taken away
-from the free version — buyers get an addition, which is a much easier thing to
-sell and a much easier thing to feel good about.
+My recommendation is still the second layered on the first, but be clear-eyed
+that it is thinner than it was a day ago. Backup alone is a weaker hook than
+the report would have been. That is the cost of having shipped the report free,
+and it was the right call — it makes the listing, the screenshots and the
+teacher pitch far stronger, and those sell more copies than a gated feature
+would have. Nothing is taken away from the free version; buyers get an
+addition.
 
 ## Price
 
@@ -215,8 +225,8 @@ value to bid against; you would be buying installs at a loss deliberately.
    copy and the feature graphic in `docs/store/`.
 3. Build the landing page, also on Pages, with the game one click away. Do this
    before the store account — it is where every link you ever post will point.
-4. Build the progress report and the export/import backup. This is the actual
-   product work and the only engineering on the list.
+4. ~~Build the progress report.~~ Done, and free. Build the **export/import
+   backup**, which is now the paid feature and the only engineering left.
 5. Open the Play account and get an `.aab` into internal testing the same day.
    The 14-day clock is the long pole; start it before the report is finished.
 6. Recruit twelve testers while the listing assets get made.
