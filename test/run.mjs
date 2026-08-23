@@ -802,8 +802,10 @@ async function main() {
         build.maxRms < play.p90 && build.maxRms > play.p90 * 0.4);
 
   // --- scores and profile records -------------------------------------------
-  const board = await state(() => {
-    const { Scores } = window.__scoresMod || {};
+  const board = await state(async () => {
+    // `window.__scoresMod` never existed; the old destructure silently produced
+    // undefined and nothing used it.
+    const { Scores } = await import('/src/profiles.js');
     const s = window.game.scores;
     s.list = [];
     const place = [];
@@ -811,16 +813,54 @@ async function main() {
     place.push(s.add({ name: 'B', score: 300, wave: 4, accuracy: 95, combo: 9 }));
     place.push(s.add({ name: 'C', score: 200, wave: 3, accuracy: 80, combo: 5 }));
     const zero = s.add({ name: 'D', score: 0, wave: 1, accuracy: 0, combo: 0 });
-    for (let i = 0; i < 20; i++) s.add({ name: `X${i}`, score: 10 + i, wave: 1, accuracy: 50, combo: 1 });
+    // Thirty more, so the cap is exercised from above rather than reached.
+    for (let i = 0; i < 30; i++) s.add({ name: `X${i}`, score: 10 + i, wave: 1, accuracy: 50, combo: 1 });
+    // A run good enough for the back half of the table still gets a placing --
+    // a table of ten would have thrown this away.
+    const deep = s.add({ name: 'DEEP', score: 25, wave: 2, accuracy: 70, combo: 2 });
     return {
       order: s.list.slice(0, 3).map((r) => r.name),
-      places: place, zero, capped: s.list.length, best: s.best,
+      places: place, zero, capped: s.list.length, best: s.best, deep,
+      // Reloading must not silently trim the table back down.
+      reloaded: new Scores().list.length,
+      sorted: s.list.every((r, i) => i === 0 || s.list[i - 1].score >= r.score),
     };
   });
   check('the score table sorts by score and reports a placing',
         JSON.stringify(board.order) === '["B","C","A"]' && board.places[1] === 1 && board.best === 300);
   check('a zero score never takes a slot', board.zero === 0);
-  check('the score table is capped at ten', board.capped === 10);
+  check('the score table holds twenty and stays sorted',
+        board.capped === 20 && board.reloaded === 20 && board.sorted);
+  check('a run that only reaches the back half still places',
+        board.deep >= 11 && board.deep <= 20);
+
+  // Twenty rows do not fit the gap the title screen has for them, so they get
+  // their own screen. It has to be reachable and it has to draw all twenty.
+  const full = await state(async () => {
+    const g = window.game;
+    const before = g.board;
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 't' }));
+    const opened = g.board;
+    g.draw();
+    // Count the rows actually rendered, by tallying fillText calls the board
+    // makes for rank numbers.
+    const ranks = new Set();
+    const ctx = g.out;
+    const realFill = ctx.fillText.bind(ctx);
+    ctx.fillText = (txt, x, y) => {
+      const m = /^(\d{1,2})\.$/.exec(String(txt));
+      if (m) ranks.add(Number(m[1]));
+      return realFill(txt, x, y);
+    };
+    g.draw();
+    ctx.fillText = realFill;
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    const closed = g.board;
+    return { before, opened, closed, rows: ranks.size, max: Math.max(...ranks) };
+  });
+  check('the full board opens on T, closes on ESC and shows all twenty',
+        full.before === false && full.opened === true && full.closed === false &&
+        full.rows === 20 && full.max === 20);
 
   const rec = await state(() => {
     const g = window.game;
@@ -983,6 +1023,15 @@ async function main() {
   await tap(1280 - 18 - 37, 720 - 18 - 37);
   check('the on-screen help button opens the instructions',
         await pg.evaluate(() => window.game.help));
+
+  // The board button is only offered between runs, so end the run first. On a
+  // phone there is no T key, and twenty scores are not reachable without it.
+  await pg.evaluate(() => { window.game.help = false; window.game.state = 'gameover'; });
+  await tap(1280 - 18 * 3 - 74 * 3 + 37, 720 - 18 - 37);
+  const boardOpen = await pg.evaluate(() => window.game.board);
+  await tap(640, 300);
+  check('the on-screen board button opens the top 20 and a tap closes it',
+        boardOpen && !(await pg.evaluate(() => window.game.board)));
 
   check('no runtime errors on the phone', mErrs.length === 0);
   if (mErrs.length) console.log(mErrs.join('\n'));

@@ -22,6 +22,11 @@ export function touchButtons(g, W, H) {
     { id: 'help', label: '?', x: W - PAD - BTN, y: H - PAD - BTN, w: BTN, h: BTN },
     { id: 'pause', label: '||', x: W - PAD * 2 - BTN * 2, y: H - PAD - BTN, w: BTN, h: BTN },
   ];
+  // The board is only offered between runs: mid-run there is no room for it
+  // beside the beam, and no reason to read it.
+  if (g.state !== 'playing') {
+    out.push({ id: 'board', label: '★', x: W - PAD * 3 - BTN * 3, y: H - PAD - BTN, w: BTN, h: BTN });
+  }
   if (g.state === 'playing') {
     out.push({
       id: 'beam',
