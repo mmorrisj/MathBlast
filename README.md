@@ -183,7 +183,10 @@ every shipped URL is relative so a subpath host works too — GitHub Pages, then
 **Add to Home screen** on the phone, gets you the installed app without
 building anything. For an actual Play Store listing it wraps in Capacitor
 (`npm run app:apk`). Both routes, and the parts that are paperwork rather than
-code, are in [docs/ANDROID.md](docs/ANDROID.md).
+code, are in [docs/ANDROID.md](docs/ANDROID.md). What it would take to *sell* it
+-- pricing, what a public repo can and cannot charge for, and the fourteen-day
+Play testing gate that dominates the schedule -- is in
+[docs/MARKETING.md](docs/MARKETING.md).
 
 ## Your sky
 
