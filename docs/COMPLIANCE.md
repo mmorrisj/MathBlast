@@ -34,6 +34,8 @@ Covered in more detail in `docs/ANDROID.md`. What compliance specifically needs:
   with **at least 12 testers opted in continuously for 14 days** before it can
   apply for production access. Organisation accounts are exempt. This is the
   long pole in the whole schedule and no part of it is engineering.
+  [`docs/store/testing.md`](store/testing.md) covers where twelve testers come
+  from, the opt-in step most of them get wrong, and what to ask them.
 
 **Declarations, all blocking**
 - **Privacy policy at a public URL.** Written: `privacy.html`, served by Pages
