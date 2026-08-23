@@ -150,15 +150,19 @@ export class ArithBeast extends Beast {
   }
 }
 
-// Grade-3 ranges: sums within 100, differences that never go negative.
-export function makeArith(op, wave, max) {
-  const cap = clamp(20 + wave * 6, 20, max);
+// Operands come from the tier: Easy is strictly single digit, Medium two. The
+// cap used to be `20 + wave * 6` for every tier, so Easy opened on two-digit
+// sums like 23 + 19 on its very first wave. Differences never go negative.
+export function makeArith(op, wave, range, cap) {
+  const lo = range.lo;
+  const hi = Math.max(lo + 1, cap);
   if (op === '+') {
-    const a = 2 + Math.floor(Math.random() * (cap - 2));
-    const b = 2 + Math.floor(Math.random() * Math.max(2, Math.min(cap, 100 - a) - 2));
+    const a = lo + Math.floor(Math.random() * (hi - lo + 1));
+    const b = lo + Math.floor(Math.random() * (hi - lo + 1));
     return { a, b, op: '+' };
   }
-  const a = 6 + Math.floor(Math.random() * (cap - 6));
+  // Subtraction reads off the same pile, so the minuend has to be the larger.
+  const a = Math.max(lo + 1, lo + Math.floor(Math.random() * (hi - lo + 1)));
   const b = 1 + Math.floor(Math.random() * (a - 1));
   return { a, b, op: '-' };
 }

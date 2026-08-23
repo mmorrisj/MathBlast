@@ -6,7 +6,7 @@
 
 import { clamp, randInt, isPrime, gcd } from '../../util.js';
 import { makeProblem } from '../../problems.js';
-import { pickKind } from '../../difficulty.js';
+import { pickKind, addCap } from '../../difficulty.js';
 import { MultBeast } from './mult.js';
 import { SplitBeast } from './split.js';
 import { FractionBeast } from './fraction.js';
@@ -17,10 +17,11 @@ import { IntegerBeast, makeInteger } from './integer.js';
 import { FracOpBeast, makeFracOp } from './fracop.js';
 import { PercentBeast, makePercent } from './percent.js';
 import { PowerBeast, makePower } from './power.js';
+import { DivBeast, makeDiv } from './div.js';
 
 export {
   MultBeast, SplitBeast, FractionBeast, Voidling, BossBeast,
-  ArithBeast, IntegerBeast, FracOpBeast, PercentBeast, PowerBeast,
+  ArithBeast, IntegerBeast, FracOpBeast, PercentBeast, PowerBeast, DivBeast,
 };
 
 export const isBossWave = (wave) => wave >= 5 && wave % 5 === 0;
@@ -49,12 +50,16 @@ export function makeBeast(tier, wave, skill, x, y, speed) {
   const s = speed * tier.speed;
   switch (pickKind(tier, wave)) {
     case 'add': {
-      const p = makeArith('+', wave, tier.addMax || 60);
+      const p = makeArith('+', wave, tier.add, addCap(tier, wave));
       return new ArithBeast(p.a, p.b, p.op, x, y, s * 0.94);
     }
     case 'sub': {
-      const p = makeArith('-', wave, tier.addMax || 60);
+      const p = makeArith('-', wave, tier.add, addCap(tier, wave));
       return new ArithBeast(p.a, p.b, p.op, x, y, s * 0.94);
+    }
+    case 'div': {
+      const p = makeDiv(wave, tier.div);
+      return new DivBeast(p.a, p.b, x, y, s * 0.9);
     }
     case 'split': {
       const n = splitNumber(wave, tier.id === 'hard');
