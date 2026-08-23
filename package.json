@@ -9,6 +9,8 @@
     "start": "node serve.js",
     "test": "node test/run.mjs",
     "build": "node tools/gen-sw.mjs && node tools/build-www.mjs",
+    "listing": "node tools/check-listing.mjs",
+    "graphic": "node tools/gen-feature-graphic.mjs",
     "app:sync": "npm run build && npx cap sync android",
     "app:open": "npx cap open android",
     "app:apk": "npm run app:sync && cd android && ./gradlew assembleDebug",

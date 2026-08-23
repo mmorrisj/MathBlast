@@ -211,7 +211,8 @@ value to bid against; you would be buying installs at a loss deliberately.
 ## The order I would do it in
 
 1. ~~Add a `LICENSE`.~~ Done — GPL-3.0-only.
-2. Write the privacy policy; publish it on the existing Pages site.
+2. ~~Write the privacy policy.~~ Done — `privacy.html`, plus the full listing
+   copy and the feature graphic in `docs/store/`.
 3. Build the landing page, also on Pages, with the game one click away. Do this
    before the store account — it is where every link you ever post will point.
 4. Build the progress report and the export/import backup. This is the actual

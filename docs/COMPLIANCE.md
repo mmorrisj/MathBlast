@@ -36,8 +36,9 @@ Covered in more detail in `docs/ANDROID.md`. What compliance specifically needs:
   long pole in the whole schedule and no part of it is engineering.
 
 **Declarations, all blocking**
-- **Privacy policy at a public URL.** Required even though the honest text is
-  three sentences saying nothing is collected. Does not exist yet.
+- **Privacy policy at a public URL.** Written: `privacy.html`, served by Pages
+  at `https://mmorrisj.github.io/MathBlast/privacy.html`. It is deliberately not
+  in the precache — it is a web page for the store listing, not part of the app.
 - **Data Safety**: no data collected, no data shared.
 - **Content rating** questionnaire. Cartoon sci-fi with no blood or characters;
   this comes out at the bottom of every scale.
@@ -56,9 +57,13 @@ Covered in more detail in `docs/ANDROID.md`. What compliance specifically needs:
   you upload rather than trusting this sentence.
 - An `.aab`, not an `.apk`, signed with an upload key kept out of the repo.
 
-**Store listing**: title, short and full description, the 512×512 icon
-(`assets/icons/icon-512.png`), a 1024×500 feature graphic (does not exist), and
-at least two landscape phone screenshots (`docs/` has ten).
+**Store listing**: all drafted in `docs/store/listing.md`, with the console's
+Data Safety, content-rating and target-audience answers filled in alongside the
+copy. `npm run listing` checks each field against Play's character limits and
+writes the paste-ready plain text. The 512×512 icon is
+`assets/icons/icon-512.png`, the 1024×500 feature graphic is
+`docs/store/feature-graphic.jpg` (`npm run graphic`), and `docs/` has ten
+landscape screenshots against a required minimum of two.
 
 ## The App Store
 
@@ -122,11 +127,10 @@ IAP — so the app is demonstrably more than its web build.
 
 Short list, in the order it blocks things:
 
-1. **A privacy policy at a public URL.** Blocks both stores. It is the shortest
-   document on this list and nothing ships without it.
-2. **A `CONTRIBUTING.md` with a CLA or assignment clause** — only if iOS is
+1. ~~A privacy policy at a public URL.~~ Done — `privacy.html`.
+2. ~~A 1024×500 feature graphic.~~ Done — `docs/store/feature-graphic.jpg`.
+3. **A `CONTRIBUTING.md` with a CLA or assignment clause** — only if iOS is ever
    wanted, and only worth anything if it exists before the first outside PR.
-3. **A 1024×500 feature graphic** for Play.
 4. **The iOS platform**, if pursuing Apple: `@capacitor/ios`, a Mac, $99.
 
 Everything else on both lists is a form to fill in, and the answers are all
