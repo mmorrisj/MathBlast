@@ -1213,6 +1213,90 @@ async function main() {
         stand.calm.t < 0.05 && !stand.calm.stark &&
         stand.grim.t > 0.7 && stand.grim.stark && !stand.restarted);
 
+  // --- the progress ledger ----------------------------------------------------
+  //
+  // The skill table only recorded facts carrying an (a, b) pair -- four of the
+  // twelve beast types. Factoring, fractions, fraction arithmetic, percents,
+  // powers, additive inverses and the equation bosses recorded nothing, so a
+  // parent's coverage page would have shown blanks for half the curriculum and
+  // implied it was never practised.
+  const concepts = await state(async () => {
+    const M = await import('/src/entities/beasts/index.js');
+    const { tierById } = await import('/src/difficulty.js');
+    const { CONCEPTS } = await import('/src/progress.js');
+    const g = window.game;
+    const known = new Set(CONCEPTS.map((c) => c.id));
+    const seen = new Set();
+    let unnamed = 0;
+    for (const id of ['easy', 'medium', 'hard']) {
+      const tier = tierById(id);
+      for (let wave = 1; wave <= 12; wave++) {
+        for (let i = 0; i < 120; i++) {
+          const c = M.makeBeast(tier, wave, g.skill, 640, 100, 40).concept;
+          if (!c || c === 'other') unnamed++;
+          seen.add(c);
+        }
+      }
+      seen.add(M.makeBoss(tier, 5, 0, 0, 0).concept);
+    }
+    return { seen: [...seen].sort(), unnamed, unlisted: [...seen].filter((c) => !known.has(c)) };
+  });
+  check('every beast the game can spawn names a concept the ledger lists',
+        concepts.unnamed === 0 && concepts.unlisted.length === 0 && concepts.seen.length >= 10);
+  if (concepts.unlisted.length) console.log('unlisted:', concepts.unlisted.join(', '));
+
+  const ledger = await state(async () => {
+    const { Progress, dayKey } = await import('/src/progress.js');
+    const p = new Progress('test-progress');
+    p.data = { concepts: {}, days: {}, runs: 0, firstSeen: dayKey() };
+    p.record('percent', true, 2.0);
+    p.record('percent', true, 4.0);
+    p.record('percent', false, 9.9);      // a wrong answer must not time anything
+    p.landed('percent');
+    const row = p.summary().find((r) => r.id === 'percent');
+    const untouched = p.summary().find((r) => r.id === 'power');
+
+    // A streak survives not having played *yet* today, and breaks on a real gap.
+    const back = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return dayKey(d); };
+    p.data.days = {};
+    for (const n of [1, 2, 3]) p.data.days[back(n)] = { seen: 5, correct: 4 };
+    const yesterdayRun = p.streak();
+    p.data.days[back(9)] = { seen: 5, correct: 4 };
+    const acrossGap = p.streak();
+    p.data.days = { [back(4)]: { seen: 1, correct: 1 } };
+    const stale = p.streak();
+
+    // The day log must not grow without bound for a daily player.
+    p.data.days = {};
+    for (let n = 0; n < 400; n++) p.data.days[back(n)] = { seen: 1, correct: 1 };
+    p.save();
+    const kept = Object.keys(p.data.days).length;
+
+    return {
+      row, untouched, yesterdayRun, acrossGap, stale, kept,
+      recentLen: p.recent(30).length,
+    };
+  });
+  check('the ledger records every concept, timing only correct answers',
+        ledger.row.seen === 3 && ledger.row.correct === 2 && ledger.row.landed === 1 &&
+        Math.abs(ledger.row.avgSeconds - 3) < 0.01);
+  check('a concept never practised reports as a gap, not as absent',
+        ledger.untouched && ledger.untouched.seen === 0 && ledger.untouched.accuracy === 0);
+  check('the streak survives a day not played yet and breaks on a real gap',
+        ledger.yesterdayRun === 3 && ledger.acrossGap === 3 && ledger.stale === 0);
+  check('the day log is capped', ledger.kept === 120 && ledger.recentLen === 30);
+
+  const reportPage = await state(() => {
+    const g = window.game;
+    g.report = true;
+    g.draw();                      // must render with a mostly-empty ledger
+    const open = g.report;
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    return { open, closed: g.report };
+  });
+  check('the progress page opens on G and closes on ESC',
+        reportPage.open === true && reportPage.closed === false);
+
   // --- installable app ------------------------------------------------------
   //
   // The Play Store route (Capacitor or a TWA) needs a real PWA underneath it,

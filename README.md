@@ -208,6 +208,40 @@ weighting mixed them and the game-over list rendered both as `7×8`. The op is
 part of the key now, and records saved before it are read as multiplication,
 which is what they were.
 
+## Progress report — `G`
+
+![The progress report](docs/progress.png)
+
+A page for whoever is keeping an eye on the practice. Concepts in curriculum
+order, each with its share of the practice, how many were answered, how many
+correctly, how long they take and when they were last met — plus the ones never
+touched at all, which are the most useful rows on the page and so cannot be
+absent ones.
+
+Three deliberate choices:
+
+- **Coverage and accuracy are separate columns.** "Never seen" and "seen and
+  struggling" need completely different responses, and one blended number hides
+  which you are looking at.
+- **Under a dozen answers, the percentage is marked and greyed.** A confident
+  63% off four attempts is noise dressed as a finding.
+- **"Ran out of time" is counted apart from "got it wrong."** A beast that
+  reached the dome unanswered is a different conversation from a wrong answer.
+
+There is no grade and no percentile. This is one game's telemetry, not an
+assessment, and presenting it as a mark out of ten would claim more than the
+data supports.
+
+Building it turned up the reason it was needed: the skill table only ever
+recorded facts carrying an `(a, b)` pair — **four of the twelve beast types**.
+Factoring, fractions, fraction arithmetic, percents, powers, additive inverses
+and the equation bosses recorded *nothing*, so half the curriculum was
+invisible and a coverage page would have implied it was never practised. Every
+beast now declares a `concept`, and a test spawns thousands across all three
+tiers to assert none of them falls through.
+
+Everything is `localStorage` on the device. Nothing is sent anywhere.
+
 ## Chaining
 
 Solving a beast takes out its neighbours whose answers share a factor with it —

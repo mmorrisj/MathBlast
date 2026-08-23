@@ -39,6 +39,8 @@ export class SplitBeast extends Beast {
   // The bare number is not a question. Every rock states its own task above it,
   // so a player can read what to do without hunting for the HUD -- and so
   // non-targeted rocks are legible too.
+  get concept() { return 'factor'; }
+
   get promptText() {
     if (this.prime && this.revealed) return `${this.n} is PRIME`;
     return `? × ? = ${this.n}`;

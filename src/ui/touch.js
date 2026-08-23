@@ -27,6 +27,7 @@ export function touchButtons(g, W, H) {
   if (g.state !== 'playing') {
     out.push({ id: 'board', label: '★', x: W - PAD * 3 - BTN * 3, y: H - PAD - BTN, w: BTN, h: BTN });
     out.push({ id: 'sky', label: '✦', x: W - PAD * 4 - BTN * 4, y: H - PAD - BTN, w: BTN, h: BTN });
+    out.push({ id: 'report', label: '▤', x: W - PAD * 5 - BTN * 5, y: H - PAD - BTN, w: BTN, h: BTN });
   }
   if (g.state === 'playing') {
     out.push({

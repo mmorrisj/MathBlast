@@ -25,6 +25,7 @@ export class Voidling extends Beast {
   // Stated above the orb, so the task is readable whether or not it is the
   // current target.
   get promptText() { return `−${this.value} + ? = 0`; }
+  get concept() { return 'inverse'; }
   get hintText() { return `−${this.value} + ? =`; }
   get faceText() { return `−${this.value}`; }
   get answerText() { return String(this.value); }

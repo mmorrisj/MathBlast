@@ -27,6 +27,7 @@ export class PowerBeast extends Beast {
 
   get magnitude() { return this.n * this.n * 0.5; }
   get promptText() { return this.mode === 'square' ? `${this.n}²` : `√${this.n * this.n}`; }
+  get concept() { return 'power'; }
   get hintText() {
     return this.mode === 'square' ? `${this.n}² =   (the area)` : `√${this.n * this.n} =   (the side)`;
   }

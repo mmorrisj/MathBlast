@@ -45,6 +45,7 @@ export class DivBeast extends Beast {
   get magnitude() { return Math.max(8, this.a * 1.2); }
   get promptText() { return `${this.a} ÷ ${this.b}`; }
   get factOp() { return '÷'; }
+  get concept() { return 'div'; }
   get hintText() { return `${this.promptText} =`; }
   get answerText() { return String(this.value); }
   accepts(raw) { return toInt(raw) === this.value; }

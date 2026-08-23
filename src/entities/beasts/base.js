@@ -42,6 +42,10 @@ export class Beast {
 
   // Which operation this beast's (a, b) pair belongs to, for the skill table.
   get factOp() { return '×'; }
+
+  // Which part of the curriculum this beast belongs to. The progress ledger
+  // groups by it, so a beast without one would be invisible to a parent.
+  get concept() { return 'other'; }
   // Shown beside the answer box, e.g. "7 × 8 =".
   get hintText() { return `${this.promptText} =`; }
 
