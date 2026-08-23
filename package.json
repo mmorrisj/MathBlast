@@ -6,6 +6,16 @@
   "description": "Stop the descending beasts by solving math problems.",
   "scripts": {
     "start": "node serve.js",
-    "test": "node test/run.mjs"
+    "test": "node test/run.mjs",
+    "build": "node tools/gen-sw.mjs && node tools/build-www.mjs",
+    "app:sync": "npm run build && npx cap sync android",
+    "app:open": "npx cap open android",
+    "app:apk": "npm run app:sync && cd android && ./gradlew assembleDebug",
+    "app:aab": "npm run app:sync && cd android && ./gradlew bundleRelease"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^7.0.0",
+    "@capacitor/cli": "^7.0.0",
+    "@capacitor/core": "^7.0.0"
   }
 }

@@ -2,3 +2,9 @@ node_modules/
 .DS_Store
 *.log
 shots/
+# Generated: `npm run build` rebuilds www/, `npx cap add android` rebuilds android/.
+www/
+android/
+# Signing keys never belong in the repo.
+*.keystore
+*.jks

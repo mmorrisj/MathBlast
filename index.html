@@ -4,10 +4,26 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>MathBlast</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<meta name="theme-color" content="#04060f">
+<meta name="description" content="Stop the descending beasts by solving math problems.">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" href="./assets/icons/icon-192.png" sizes="192x192" type="image/png">
+<link rel="apple-touch-icon" href="./assets/icons/icon-192.png">
 <style>
+  /* The font ships with the game. It used to come from Google Fonts, which is
+     fine for a web page and useless for an installed app: the first launch on
+     a plane would have fallen back to the system monospace, and the layout is
+     tuned to this one's metrics. One variable file covers 400-700. */
+  @font-face {
+    font-family: "JetBrains Mono";
+    src: url("./assets/font/jetbrains-mono-latin.woff2") format("woff2");
+    font-weight: 100 800;
+    font-style: normal;
+    font-display: block;
+  }
   :root { color-scheme: dark; }
   html, body {
     margin: 0;
@@ -25,6 +41,11 @@
   body {
     display: grid;
     place-items: center;
+    /* Installed full-screen, the canvas is centred inside the cutouts rather
+       than under them. */
+    padding: env(safe-area-inset-top) env(safe-area-inset-right)
+             env(safe-area-inset-bottom) env(safe-area-inset-left);
+    box-sizing: border-box;
     /* Faint field glow behind the letterbox bars. */
     background:
       radial-gradient(ellipse at 50% 120%, #12163a 0%, #04060f 60%),
@@ -79,5 +100,17 @@
          aria-label="Player name">
   <div id="hint">H how to play &nbsp;·&nbsp; T top 20 &nbsp;·&nbsp; P pause &nbsp;·&nbsp; M mute</div>
   <script type="module" src="./src/main.js"></script>
+  <script>
+    // Registration lives here rather than in main.js so the game module stays
+    // free of anything that only makes sense when it is served over HTTP.
+    if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+      addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js').catch((e) => {
+          // Offline support is an enhancement; the game runs regardless.
+          console.warn('service worker not registered:', e.message);
+        });
+      });
+    }
+  </script>
 </body>
 </html>
