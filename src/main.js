@@ -283,6 +283,56 @@ class Game {
       this._setInputMode('choose');
     }, { passive: true });
     window.addEventListener('gamepadconnected', () => this._setInputMode('choose'));
+    this._bindAppShell();
+  }
+
+  // The handful of things a page has to do for itself that a native app gets
+  // from the OS. All of them are best-effort: every API here is missing on some
+  // browser, and none of them is worth an error if it is.
+  _bindAppShell() {
+    // 1. The screen must not dim while you are reading a problem. A wake lock
+    //    is dropped whenever the tab is hidden, so it is re-taken on return.
+    const wake = async () => {
+      if (!('wakeLock' in navigator) || document.visibilityState !== 'visible') return;
+      if (this.state !== 'playing') return;
+      try { this.wakeLock = await navigator.wakeLock.request('screen'); } catch { /* denied */ }
+    };
+    this._wake = wake;
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') wake();
+      // Losing focus mid-run should pause rather than let beasts land unseen.
+      else if (this.state === 'playing') this.paused = true;
+    });
+
+    // 2. Landscape, and full screen, on the first gesture. Installed from the
+    //    manifest both are already set; in a browser tab they are not, and the
+    //    lock call is only allowed from inside a user gesture.
+    const claim = () => {
+      if (screen.orientation && screen.orientation.lock) {
+        screen.orientation.lock('landscape').catch(() => { /* desktop, or refused */ });
+      }
+      if (this.touch && !document.fullscreenElement && document.documentElement.requestFullscreen) {
+        document.documentElement.requestFullscreen().catch(() => { /* refused */ });
+      }
+      wake();
+    };
+    window.addEventListener('pointerdown', claim, { once: true });
+    window.addEventListener('keydown', claim, { once: true });
+
+    // 3. Android's back button. Installed, there is no browser chrome to go
+    //    back to, so an unhandled back closes the app -- from the middle of a
+    //    run. A spare history entry absorbs it and closes whatever is open.
+    history.replaceState({ mathblast: 'root' }, '');
+    history.pushState({ mathblast: 'shell' }, '');
+    window.addEventListener('popstate', () => {
+      // Push the entry straight back, or the next back press exits for real.
+      history.pushState({ mathblast: 'shell' }, '');
+      if (this.help) { this.help = false; return; }
+      if (this.board) { this.board = false; return; }
+      if (this.naming) { this._stopNaming(); return; }
+      if (this.state === 'playing') { this.paused = !this.paused; return; }
+      if (this.state === 'title') { this.state = 'profile'; this.stateTime = 0; }
+    });
   }
 
   // A hidden DOM input carries name entry, so phones get the native keyboard
@@ -368,7 +418,16 @@ class Game {
       this.state = 'playing';
       this.stateTime = 0;
       this._nextWave();
+      if (this._wake) this._wake();
     }
+  }
+
+  // Nothing is being read once the run is over, so give the screen back.
+  _releaseWake() {
+    if (!this.wakeLock) return;
+    const lock = this.wakeLock;
+    this.wakeLock = null;
+    lock.release().catch(() => { /* already gone */ });
   }
 
   _setInputMode(mode) {
@@ -716,6 +775,7 @@ class Game {
   // Fold the finished run into the player's profile and the score table.
   _endRun() {
     this.state = 'gameover';
+    this._releaseWake();
     this.stateTime = 0;
     this.audio.gameOver();
     const name = this.profiles.active ? this.profiles.active.name : 'PLAYER';

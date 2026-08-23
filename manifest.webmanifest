@@ -1,0 +1,20 @@
+{
+  "id": "/mathblast/",
+  "name": "MathBlast",
+  "short_name": "MathBlast",
+  "description": "Stop the descending beasts by solving math problems. A 90s-arcade math defence game.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone"],
+  "orientation": "landscape",
+  "background_color": "#04060f",
+  "theme_color": "#04060f",
+  "categories": ["games", "education"],
+  "lang": "en",
+  "icons": [
+    { "src": "assets/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "assets/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "assets/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

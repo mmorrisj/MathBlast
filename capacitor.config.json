@@ -1,0 +1,11 @@
+{
+  "appId": "com.mmorrisj.mathblast",
+  "appName": "MathBlast",
+  "webDir": "www",
+  "android": {
+    "backgroundColor": "#04060f"
+  },
+  "server": {
+    "androidScheme": "https"
+  }
+}

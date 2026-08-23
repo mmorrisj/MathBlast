@@ -8,7 +8,9 @@
 // ships one globally) and skips with a clear message if there is none.
 
 import { spawn } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { assets, version } from '../tools/gen-sw.mjs';
 
 const PORT = Number(process.env.PORT) || 5273;
 const BASE = `http://localhost:${PORT}`;
@@ -1036,6 +1038,79 @@ async function main() {
   check('no runtime errors on the phone', mErrs.length === 0);
   if (mErrs.length) console.log(mErrs.join('\n'));
   await side.c.close();
+
+  // --- installable app ------------------------------------------------------
+  //
+  // The Play Store route (Capacitor or a TWA) needs a real PWA underneath it,
+  // and "it works offline" is the one claim that cannot be read off the source.
+
+  // sw.js is generated. If a source file is added and tools/gen-sw.mjs is not
+  // re-run, the app silently ships without that file cached -- which shows up
+  // only on a plane. Comparing the committed list to what is on disk turns that
+  // into a test failure at the moment it happens.
+  const sw = readFileSync(new URL('../sw.js', import.meta.url), 'utf8');
+  const listed = JSON.parse(sw.match(/const ASSETS = (\[[\s\S]*?\]);/)[1]);
+  const stamped = sw.match(/const VERSION = '([0-9a-f]+)';/)[1];
+  const onDisk = assets();
+  check('the service worker precache list matches the files on disk',
+        JSON.stringify(listed) === JSON.stringify(onDisk));
+  check('the service worker version tracks asset content',
+        stamped === version(onDisk));
+
+  const app = await browser.newContext({
+    viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true,
+  });
+  const ap = await app.newPage();
+  const aErrs = [];
+  ap.on('pageerror', (e) => aErrs.push('pageerror: ' + e.message));
+  ap.on('console', (m) => { if (m.type() === 'error') aErrs.push('console: ' + m.text()); });
+  await ap.goto(BASE, { waitUntil: 'load' });
+
+  const installable = await ap.evaluate(async () => {
+    const reg = await navigator.serviceWorker.ready;
+    const m = await (await fetch(document.querySelector('link[rel=manifest]').href)).json();
+    await document.fonts.ready;
+    return {
+      active: Boolean(reg.active),
+      scope: new URL(reg.scope).pathname,
+      display: m.display,
+      orientation: m.orientation,
+      maskable: m.icons.some((i) => i.purpose === 'maskable'),
+      sizes: m.icons.map((i) => i.sizes).sort(),
+      // The font used to come from Google Fonts, which an installed app cannot
+      // reach on first launch offline.
+      fontLocal: document.fonts.check('700 24px "JetBrains Mono"'),
+      fontRemote: [...document.styleSheets].some((sh) => (sh.href || '').includes('googleapis')),
+    };
+  });
+  check('the app is installable: worker at the root, fullscreen, landscape, maskable icon',
+        installable.active && installable.scope === '/' &&
+        installable.display === 'fullscreen' && installable.orientation === 'landscape' &&
+        installable.maskable && installable.sizes.includes('512x512'));
+  check('the typeface ships with the game rather than coming off a CDN',
+        installable.fontLocal && !installable.fontRemote);
+
+  // Give the worker a moment to finish precaching, then pull the plug.
+  await ap.waitForTimeout(1500);
+  const cachedCount = await ap.evaluate(async () => {
+    const keys = (await caches.keys()).filter((k) => k.startsWith('mathblast-'));
+    return (await (await caches.open(keys[0])).keys()).length;
+  });
+  await app.setOffline(true);
+  await ap.reload({ waitUntil: 'load' });
+  await ap.waitForTimeout(1000);
+  const offline = await ap.evaluate(() => ({
+    booted: Boolean(window.game),
+    drew: (() => { try { window.game.draw(); return true; } catch { return false; } })(),
+    font: document.fonts.check('700 24px "JetBrains Mono"'),
+  }));
+  await app.setOffline(false);
+  check('the whole app is precached', cachedCount === onDisk.length);
+  check('it boots, draws and keeps its typeface with the network off',
+        offline.booted && offline.drew && offline.font);
+  check('no runtime errors installing or running offline', aErrs.length === 0);
+  if (aErrs.length) console.log(aErrs.join('\n'));
+  await app.close();
 
   await browser.close();
   stop();

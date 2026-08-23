@@ -143,6 +143,24 @@ plate absorbs a landing that would otherwise cost a core.
 
 ![Orbs streaming into the dome](docs/orbs.png)
 
+## Installing it as an app
+
+The game is an installable PWA: a manifest that asks for fullscreen and
+landscape, maskable icons, and a service worker that precaches all 38 files. It
+boots and plays with the network off — the typeface ships in `assets/font/`
+rather than coming off Google Fonts, which an installed app cannot reach on a
+plane. `npm test` fails if the precache list drifts from what is on disk, so
+adding a source file cannot silently break the offline build.
+
+Installed, it also does the things a page has to do for itself that an app gets
+from the OS: a wake lock so the screen does not dim mid-problem, an orientation
+lock, fullscreen on first touch, safe-area padding so a notch does not sit over
+the canvas, and Android's back button closing an overlay instead of the app.
+
+For Google Play it wraps in Capacitor — `npm run app:apk`. The full route, and
+the parts that are paperwork rather than code, are in
+[docs/ANDROID.md](docs/ANDROID.md).
+
 ## Sound
 
 Fully synthesized — no audio assets, not even an impulse response.

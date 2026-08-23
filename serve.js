@@ -11,6 +11,9 @@ const TYPES = {
   '.css': 'text/css; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
   '.svg': 'image/svg+xml',
+  '.webmanifest': 'application/manifest+json; charset=utf-8',
+  '.png': 'image/png',
+  '.woff2': 'font/woff2',
 };
 
 createServer(async (req, res) => {
@@ -25,10 +28,14 @@ createServer(async (req, res) => {
   }
   try {
     const body = await readFile(file);
-    res.writeHead(200, {
+    const headers = {
       'content-type': TYPES[extname(file)] || 'application/octet-stream',
       'cache-control': 'no-cache',
-    }).end(body);
+    };
+    // A worker scoped to the whole origin has to be served from the root, and
+    // browsers refuse to register one that arrives with a narrower scope.
+    if (path === '/sw.js') headers['service-worker-allowed'] = '/';
+    res.writeHead(200, headers).end(body);
   } catch {
     res.writeHead(404).end('not found');
   }
