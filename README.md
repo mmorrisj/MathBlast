@@ -157,9 +157,12 @@ from the OS: a wake lock so the screen does not dim mid-problem, an orientation
 lock, fullscreen on first touch, safe-area padding so a notch does not sit over
 the canvas, and Android's back button closing an overlay instead of the app.
 
-For Google Play it wraps in Capacitor — `npm run app:apk`. The full route, and
-the parts that are paperwork rather than code, are in
-[docs/ANDROID.md](docs/ANDROID.md).
+No build step means any static host serves it straight from the repo root, and
+every shipped URL is relative so a subpath host works too — GitHub Pages, then
+**Add to Home screen** on the phone, gets you the installed app without
+building anything. For an actual Play Store listing it wraps in Capacitor
+(`npm run app:apk`). Both routes, and the parts that are paperwork rather than
+code, are in [docs/ANDROID.md](docs/ANDROID.md).
 
 ## Sound
 

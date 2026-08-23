@@ -1057,6 +1057,26 @@ async function main() {
   check('the service worker version tracks asset content',
         stamped === version(onDisk));
 
+  // Hosting: GitHub Pages, and most static hosts, serve a project from a
+  // subpath rather than the root of a domain. Every URL the app ships has to be
+  // relative for that to work. The manifest carried `"id": "/mathblast/"` --
+  // an absolute path that matched nothing on a subpath, and would not even have
+  // matched by case on Pages.
+  const manifestText = readFileSync(new URL('../manifest.webmanifest', import.meta.url), 'utf8');
+  const manifest = JSON.parse(manifestText);
+  const indexText = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const rooted = [
+    ...Object.entries(manifest)
+      .filter(([, v]) => typeof v === 'string' && v.startsWith('/'))
+      .map(([k]) => `manifest.${k}`),
+    ...(manifest.icons || []).filter((i) => i.src.startsWith('/')).map((i) => `icon ${i.src}`),
+    ...[...indexText.matchAll(/(?:src|href)="(\/[^"]*)"/g)].map((m) => `index.html ${m[1]}`),
+    ...listed.filter((a) => a.startsWith('/')).map((a) => `sw.js ${a}`),
+  ];
+  check('every shipped URL is relative, so the app survives a subpath host',
+        rooted.length === 0);
+  if (rooted.length) console.log('absolute:', rooted.join(', '));
+
   const app = await browser.newContext({
     viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true,
   });
