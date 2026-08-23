@@ -1108,6 +1108,111 @@ async function main() {
   if (mErrs.length) console.log(mErrs.join('\n'));
   await side.c.close();
 
+  // --- the sky, the chain, the last stand ------------------------------------
+
+  // The skill table keyed facts as `${a}*${b}`, so `7 + 8` and `7 x 8` were the
+  // same entry: the adaptive weighting mixed them and the game-over list drew
+  // both as `7x8`. The star chart would have put that on screen.
+  const facts = await state(async () => {
+    const { SkillTable, mastery, MASTERED } = await import('/src/problems.js');
+    const t = new SkillTable('test-facts');
+    t.facts.clear();
+    t.record(7, 8, '×', 1.0, true);
+    t.record(7, 8, '+', 1.0, true);
+    const distinct = t.facts.size;
+    // Legacy rows carry no op and were all multiplication.
+    t.facts.clear();
+    localStorage.setItem(t.storeKey, JSON.stringify([{ a: 6, b: 7, ema: 1.1, misses: 0, seen: 9 }]));
+    t.load();
+    const migrated = [...t.facts.values()][0];
+
+    // Mastery needs speed, accuracy and repetition -- one fast answer is not it.
+    const fast1 = mastery({ a: 2, b: 2, ema: 1.0, misses: 0, seen: 1 });
+    const solid = mastery({ a: 2, b: 2, ema: 1.0, misses: 0, seen: 9 });
+    const slow = mastery({ a: 2, b: 2, ema: 4.6, misses: 0, seen: 9 });
+    const missy = mastery({ a: 2, b: 2, ema: 1.0, misses: 5, seen: 9 });
+    return { distinct, migrated, fast1, solid, slow, missy, MASTERED };
+  });
+  check('adding and multiplying the same pair are different facts', facts.distinct === 2);
+  check('facts saved before the op existed are read as multiplication',
+        facts.migrated.op === '×' && facts.migrated.seen === 9);
+  check('mastery needs speed, accuracy and repetition together',
+        facts.solid >= facts.MASTERED && facts.fast1 < 0.4 &&
+        facts.slow < facts.MASTERED && facts.missy < facts.MASTERED);
+
+  const sky = await state(async () => {
+    const { chartStats, tables } = await import('/src/ui/starchart.js');
+    const g = window.game;
+    g.skill.facts.clear();
+    const empty = chartStats(g.skill);
+    // Light the whole 5x table, both directions.
+    for (let n = 2; n <= 12; n++) {
+      g.skill.facts.set(g.skill.key(5, n, '×'), { a: 5, b: n, op: '×', ema: 1.1, misses: 0, seen: 9 });
+      g.skill.facts.set(g.skill.key(n, 5, '×'), { a: n, b: 5, op: '×', ema: 1.1, misses: 0, seen: 9 });
+    }
+    const lit = chartStats(g.skill);
+    g.sky = true;
+    g.draw();                       // must not throw with a partly-filled sky
+    const open = g.sky;
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    return { empty, lit, named: tables(g.skill), open, closed: g.sky };
+  });
+  check('an empty sky is empty and a finished table is one constellation',
+        sky.empty.known === 0 && sky.empty.constellations === 0 &&
+        sky.lit.known === 21 && JSON.stringify(sky.named) === '[5]');
+  check('the star chart opens and closes', sky.open === true && sky.closed === false);
+
+  // Chaining: solving one answer takes out the answers that share a factor
+  // with it, and leaves the ones that do not.
+  const chain = await state(async () => {
+    const { MultBeast } = await import('/src/entities/beasts/index.js');
+    const g = window.game;
+    g.state = 'playing';
+    g.beasts = [];
+    g.chainFx = [];
+    g.combo = 12;
+    const before = g.score;
+    const put = (a, b, x) => { const m = new MultBeast(a, b, x, 300, 0); m.speed = 0; g.beasts.push(m); return m; };
+    const seed = put(2, 3, 640);      // 6
+    put(4, 6, 700);                   // 24 -- a multiple
+    put(3, 4, 580);                   // 12 -- a multiple
+    put(5, 7, 300);                   // 35 -- not
+    put(7, 1, 980);                   // 7  -- not
+    g._chain(seed);
+    return {
+      dead: g.beasts.filter((b) => b.state !== 'alive').map((b) => b.answerText).sort(),
+      alive: g.beasts.filter((b) => b.state === 'alive').map((b) => b.answerText).sort(),
+      bolts: g.chainFx.length,
+      scored: g.score > before,
+      combo: g.combo,
+    };
+  });
+  check('a solved answer chains to the answers it divides into',
+        JSON.stringify(chain.dead) === '["12","24"]' &&
+        JSON.stringify(chain.alive) === '["35","6","7"]' &&
+        chain.bolts === 2 && chain.scored);
+  // The chained beasts were not answered, so they must not inflate the streak.
+  check('a chain pays out but does not touch the combo', chain.combo === 12);
+
+  const stand = await state(() => {
+    const g = window.game;
+    g.state = 'playing';
+    g.cores = 3;
+    g.lastStandT = 0;
+    g.audio.stark = false;
+    for (let i = 0; i < 40; i++) g.update(1 / 60);
+    const calm = { t: g.lastStandT, stark: Boolean(g.audio.stark) };
+    g.cores = 1;
+    g.audio.lastStand();
+    for (let i = 0; i < 90; i++) g.update(1 / 60);
+    const grim = { t: g.lastStandT, stark: Boolean(g.audio.stark) };
+    g.audio.restart();
+    return { calm, grim, restarted: Boolean(g.audio.stark) };
+  });
+  check('the last core drains the colour and strips the arrangement',
+        stand.calm.t < 0.05 && !stand.calm.stark &&
+        stand.grim.t > 0.7 && stand.grim.stark && !stand.restarted);
+
   // --- installable app ------------------------------------------------------
   //
   // The Play Store route (Capacitor or a TWA) needs a real PWA underneath it,

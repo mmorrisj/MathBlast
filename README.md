@@ -185,6 +185,48 @@ building anything. For an actual Play Store listing it wraps in Capacitor
 (`npm run app:apk`). Both routes, and the parts that are paperwork rather than
 code, are in [docs/ANDROID.md](docs/ANDROID.md).
 
+## Your sky
+
+![The star chart](docs/starchart.png)
+
+The skill table has kept `{ema, misses, seen}` for every fact, per profile,
+since the adaptive difficulty went in — and showed the player four items of it
+on the game-over screen. **S** turns that into the thing you fly against: one
+star per times-table fact, dim when unseen, brightening as the answers get
+faster and cleaner, flaring when a fact is genuinely known. Light a whole row
+and the stars join into a constellation, so "I've got my fives" becomes
+something that visibly happened.
+
+A star lights on speed *and* accuracy *and* repetition, all three — one lucky
+fast answer is not mastery, and neither is a slow correct one. Mid-run, the
+moment a fact crosses the line the game says so; it always knew, and never
+mentioned it.
+
+Fixing this surfaced a bug it would have put on screen: facts were keyed
+`${a}*${b}`, so `7 + 8` and `7 × 8` were the *same entry*. The adaptive
+weighting mixed them and the game-over list rendered both as `7×8`. The op is
+part of the key now, and records saved before it are read as multiplication,
+which is what they were.
+
+## Chaining
+
+Solving a beast takes out its neighbours whose answers share a factor with it —
+a bolt jumps from `6` to `24` to `12` and they go together, for 40% each. The
+only tactic the game had was *answer fast*; this makes noticing that six and
+twenty-four are related worth something, which is the actual mathematical skill
+rather than the typing speed. Everything chained relates to the answer you
+*typed*, not to the previous link: "all the ones related to what I solved" is a
+rule a nine-year-old can hold, and a propagating one is not. Chained beasts pay
+out but never touch the combo, the accuracy or the skill table — you did not
+answer them.
+
+## The last core
+
+The danger ramp is continuous by design, which left the game with no spikes in
+it. At one core the colour drains out of the world, the vignette closes, every
+melodic layer drops away and the kit carries it alone, and the game says LAST
+CORE across the middle. It is the one place the game raises its voice.
+
 ## Sound
 
 Fully synthesized — no audio assets, not even an impulse response.
@@ -220,6 +262,9 @@ Fully synthesized — no audio assets, not even an impulse response.
   sidechain; a ghost kick pumping the mix sounds like a fault, not a groove.
   The drums also arrive earlier every sector (danger 0.62 → 0.11), so by
   CRIMSON DEEP the kit is simply always there.
+- **The mix is the stakes.** On the last core `stark` drops the pad to a third
+  and mutes the arp and lead entirely, so the drums carry the run out alone. A
+  new run puts them back.
 - **Panned by screen position**, with a convolution reverb built from
   exponentially decaying noise, and a held breath — everything cuts, the tail
   carries — between waves.

@@ -114,6 +114,7 @@ export class Audio {
     this.silentUntil = 0;         // wall-clock time to hold the arrangement
     this.layerGain = {};
     this.chordDegree = 0;
+    this.stark = false;           // last core: melodic layers drop away
   }
 
   get spb() { return 60 / this.bpm; }
@@ -278,22 +279,47 @@ export class Audio {
     if (!this.ready) return;
     const t = this.ctx.currentTime;
     const hold = t < this.silentUntil ? 0 : 1;
+    // On the last core everything melodic drops away and the kit carries it
+    // alone. The mix becomes the stakes.
+    const stark = this.stark ? 0 : 1;
     const targets = {
-      pad: 0.5 * hold,
+      pad: 0.5 * hold * (this.stark ? 0.35 : 1),
       bass: clamp((this.danger - 0.12) / 0.3, 0, 1) * 0.55 * hold,
-      arp: clamp((this.danger - 0.42) / 0.3, 0, 1) * 0.34 * hold,
+      arp: clamp((this.danger - 0.42) / 0.3, 0, 1) * 0.34 * hold * stark,
       // The drums used to wait for danger > 0.62 in every sector, so most of
       // a run had no percussion at all. Each sector brings them in earlier;
       // by CRIMSON DEEP the kit is simply always there.
       drums: clamp((this.danger - (0.62 - this.band * 0.17)) / 0.28, 0, 1)
              * (0.42 + this.band * 0.06) * hold,
       lead: this.band >= 1
-        ? clamp((this.danger - 0.3) / 0.35, 0, 1) * (0.16 + this.band * 0.05) * hold
+        ? clamp((this.danger - 0.3) / 0.35, 0, 1) * (0.16 + this.band * 0.05) * hold * stark
         : 0,
     };
     for (const k in targets) {
       this.layerGain[k].gain.setTargetAtTime(targets[k], t, hold ? 0.35 : 0.12);
     }
+  }
+
+  // The last core. Everything melodic falls away, a low swell comes up under
+  // it, and the kit keeps time on its own until the run ends.
+  lastStand() {
+    if (!this.ready) return;
+    this.stark = true;
+    this.setDanger(this.danger);
+    const t = this.ctx.currentTime + 0.02;
+    const o = this.ctx.createOscillator();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(this._chordRoot(0) * 0.5, t);
+    const lp = this.ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(180, t);
+    lp.frequency.linearRampToValueAtTime(700, t + 1.4);
+    const vg = this.ctx.createGain();
+    vg.gain.setValueAtTime(0, t);
+    vg.gain.linearRampToValueAtTime(0.16, t + 0.5);
+    vg.gain.linearRampToValueAtTime(0, t + 2.2);
+    o.connect(lp); lp.connect(vg); vg.connect(this.sfxBus);
+    o.start(t); o.stop(t + 2.3);
   }
 
   // The held breath between waves. Everything cuts; the reverb tail carries.
@@ -933,6 +959,26 @@ export class Audio {
     });
   }
 
+  // A chained kill: a chord tone struck an octave up, climbing one tone per
+  // link. It rides the current chord so a chain sounds like an arpeggio in key
+  // rather than a separate effect fired over the top.
+  chain(x = 640, link = 0) {
+    if (!this.ready) return;
+    const tones = this._chordTones(this.chordDegree);
+    const semi = tones[(link + 1) % tones.length] + 12;
+    const t = this.ctx.currentTime + 0.005 + link * 0.05;
+    const o = this.ctx.createOscillator();
+    o.type = 'triangle';
+    o.frequency.value = this._chordRoot(this.chordDegree) * 4 * semiToRatio(semi);
+    const vg = this.ctx.createGain();
+    vg.gain.setValueAtTime(0.0001, t);
+    vg.gain.linearRampToValueAtTime(0.1, t + 0.006);
+    vg.gain.exponentialRampToValueAtTime(0.0001, t + 0.3);
+    o.connect(vg);
+    vg.connect(this._panned(x, 0.3));
+    o.start(t); o.stop(t + 0.34);
+  }
+
   gameOver() {
     if (!this.ready) return;
     const t = this.ctx.currentTime;
@@ -960,5 +1006,7 @@ export class Audio {
     if (!this.ready) return;
     this.silentUntil = 0;
     this.modeBlend = 1.5;
+    // A new run puts the melodic layers back after a last stand stripped them.
+    this.stark = false;
   }
 }

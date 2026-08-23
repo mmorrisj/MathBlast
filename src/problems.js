@@ -8,6 +8,19 @@ import { clamp, randInt } from './util.js';
 
 const STORE_KEY = 'mathblast.skill.v1';
 
+// How well a fact is known, 0..1. Speed and accuracy both have to be there,
+// and neither counts until the fact has been seen enough times to mean
+// anything -- one lucky fast answer is not mastery.
+export function mastery(f) {
+  if (!f || !f.seen) return 0;
+  const confidence = clamp((f.seen - 1) / 5, 0, 1);
+  const speed = clamp((5 - f.ema) / 3.4, 0, 1);          // 5s -> 0, 1.6s -> 1
+  const accuracy = clamp(1 - (f.misses / f.seen) / 0.4, 0, 1);
+  return clamp(Math.min(speed, accuracy) * confidence, 0, 1);
+}
+
+export const MASTERED = 0.85;
+
 export class SkillTable {
   // Scoped to a profile id, so two people sharing a device each get their own
   // adaptive difficulty instead of averaging into one blurred learner.
@@ -24,20 +37,27 @@ export class SkillTable {
     this.load();
   }
 
-  key(a, b) { return `${a}*${b}`; }
+  // The op is part of the key. It used to be `${a}*${b}` for everything, so
+  // `7 + 8` and `7 x 8` were the same fact: the adaptive weighting mixed them
+  // and the game-over screen rendered both as `7x8`. Records saved before this
+  // carry no op and are read as multiplication, which is what they were.
+  key(a, b, op = '×') { return `${a}${op}${b}`; }
 
-  get(a, b) {
-    const k = this.key(a, b);
+  get(a, b, op = '×') {
+    const k = this.key(a, b, op);
     let f = this.facts.get(k);
     if (!f) {
-      f = { a, b, ema: 4.0, misses: 0, seen: 0 };
+      f = { a, b, op, ema: 4.0, misses: 0, seen: 0 };
       this.facts.set(k, f);
     }
     return f;
   }
 
-  record(a, b, seconds, correct) {
-    const f = this.get(a, b);
+  // Returns true when this answer is what took the fact over the line, so the
+  // game can say so. The table has always known; the player never saw it.
+  record(a, b, op, seconds, correct) {
+    const f = this.get(a, b, op);
+    const before = mastery(f);
     f.seen++;
     if (correct) {
       // Only successful solves move the latency estimate.
@@ -46,12 +66,14 @@ export class SkillTable {
       f.misses++;
     }
     this.save();
+    return before < MASTERED && mastery(f) >= MASTERED;
   }
 
   // Higher weight == more likely to spawn. Unseen facts get a baseline so the
   // whole table stays in rotation; slow and missed facts float to the top.
+  // Multiplication only: this drives which times-table fact a MultBeast picks.
   weight(a, b) {
-    const k = this.key(a, b);
+    const k = this.key(a, b, '×');
     const f = this.facts.get(k);
     if (!f || f.seen === 0) return 2.2;
     const slow = clamp(f.ema / 3.0, 0.25, 3.5);
@@ -72,7 +94,11 @@ export class SkillTable {
     try {
       const raw = localStorage.getItem(this.storeKey);
       if (!raw) return;
-      for (const f of JSON.parse(raw)) this.facts.set(this.key(f.a, f.b), f);
+      for (const f of JSON.parse(raw)) {
+        // Legacy records predate the op and were all multiplication.
+        if (!f.op) f.op = '×';
+        this.facts.set(this.key(f.a, f.b, f.op), f);
+      }
     } catch { /* private mode, corrupted value -- start fresh */ }
   }
 
