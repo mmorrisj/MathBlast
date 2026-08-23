@@ -158,7 +158,7 @@ plate absorbs a landing that would otherwise cost a core.
 ## Installing it as an app
 
 The game is an installable PWA: a manifest that asks for fullscreen and
-landscape, maskable icons, and a service worker that precaches all 38 files. It
+landscape, maskable icons, and a service worker that precaches all 41 files. It
 boots and plays with the network off — the typeface ships in `assets/font/`
 rather than coming off Google Fonts, which an installed app cannot reach on a
 plane. `npm test` fails if the precache list drifts from what is on disk, so
@@ -183,9 +183,9 @@ every shipped URL is relative so a subpath host works too — GitHub Pages, then
 **Add to Home screen** on the phone, gets you the installed app without
 building anything. For an actual Play Store listing it wraps in Capacitor
 (`npm run app:apk`). Both routes, and the parts that are paperwork rather than
-code, are in [docs/ANDROID.md](docs/ANDROID.md). What it would take to *sell* it
--- pricing, what a public repo can and cannot charge for, and the fourteen-day
-Play testing gate that dominates the schedule -- is in
+code, are in [docs/ANDROID.md](docs/ANDROID.md). What it would take to *sell* it, with the
+web version left free -- what the paid app can honestly offer that this one does
+not, and the fourteen-day Play testing gate that dominates the schedule -- is in
 [docs/MARKETING.md](docs/MARKETING.md).
 
 ## Your sky
