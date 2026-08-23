@@ -186,7 +186,8 @@ building anything. For an actual Play Store listing it wraps in Capacitor
 code, are in [docs/ANDROID.md](docs/ANDROID.md). What it would take to *sell* it, with the
 web version left free -- what the paid app can honestly offer that this one does
 not, and the fourteen-day Play testing gate that dominates the schedule -- is in
-[docs/MARKETING.md](docs/MARKETING.md).
+[docs/MARKETING.md](docs/MARKETING.md), and what each store requires before it
+will take the app is in [docs/COMPLIANCE.md](docs/COMPLIANCE.md).
 
 ## Your sky
 

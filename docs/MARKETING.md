@@ -122,11 +122,13 @@ The consequence for the paid feature: the progress report will be GPL too, so it
 is not a secret and cannot be one. That is fine — it is not secrecy that makes
 it worth buying, it is that it is finished, installed, and one tap away.
 
-One thing the licence does close off. **GPLv3 and Apple's App Store terms
-conflict** — the App Store imposes usage restrictions the GPL forbids adding,
-and Apple has pulled GPL apps over exactly this. Google Play has no such
-problem. iOS was already a separate project for other reasons (below); this
-makes it a decision as well as a cost.
+**GPLv3 and Apple's App Store terms conflict**, and Apple has pulled GPL apps
+over it — but that bites projects with *multiple* copyright holders, and you are
+the sole author. The GPL is a licence you grant to others; it does not bind you,
+so the same code can go to the App Store under Apple's terms while the repo
+stays GPL. What would take that option away is merging someone else's patch
+without a contributor agreement in place. See
+[COMPLIANCE.md](COMPLIANCE.md).
 
 **The typeface is settled and separate.** JetBrains Mono is SIL Open Font
 License 1.1, free for commercial use, and JetBrains explicitly does not require
@@ -221,8 +223,8 @@ value to bid against; you would be buying installs at a loss deliberately.
 
 ## What this does not solve
 
-An App Store release. Two independent reasons now: Apple does not accept a
-wrapped web view as a game the way Play does, so iOS would mean a real port; and
-GPLv3 conflicts with the App Store's terms regardless. The PWA installs fine
-from Safari, so iPhone users are covered by the free version — just not by
-anything you can charge for.
+An App Store release, though it is a later decision rather than a closed door:
+$99 a year against Play's $25 once, a Mac to build on, and guideline 4.2 to
+argue past. [COMPLIANCE.md](COMPLIANCE.md) covers what each store wants. The PWA
+installs fine from Safari either way, so iPhone users have the free version
+today.
