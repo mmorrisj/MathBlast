@@ -3,7 +3,7 @@
 // Fixed 1280x720 virtual resolution drawn straight into the visible canvas and
 // letterboxed by CSS, so render cost is constant regardless of window size.
 
-import { clamp, damp, rand, randInt, power } from './util.js';
+import { clamp, damp, rand, randInt, power, TAU } from './util.js';
 import { theme, setThemeWave, setColorSafe, setReducedMotion } from './theme.js';
 import { Audio } from './audio.js';
 import { SkillTable, makeChoices } from './problems.js';
@@ -27,6 +27,7 @@ import { drawProfiles, profileHitTest, nameButton, backButton, drawScores, drawL
 import { drawStarChart } from './ui/starchart.js';
 import { drawProgress } from './ui/progress.js';
 import { drawMenu, menuItems, menuHitTest } from './ui/menu.js';
+import { Kraken } from './entities/kraken.js';
 import { dayKey } from './progress.js';
 
 const W = 1280;
@@ -132,6 +133,9 @@ class Game {
     this.inputPulse = 0;
     this.waveBanner = 0;
     this.wavePhase = 'active';
+    this.kraken = null;
+    this.krakenBlast = null;
+    this.camera.noStop = false;
     this.phaseTimer = 0;
     this.waveMisses = 0;
     this.lastPerfect = false;
@@ -692,7 +696,20 @@ class Game {
     this.waveMisses = 0;
     this.wavePhase = 'active';
     this.boss = null;
-    if (isBossWave(this.wave)) {
+    this.kraken = null;
+    // Every tenth wave is the Kraken rather than another shell. The camera
+    // pulls back to open the field, which is most of what makes it read as an
+    // event rather than as a slightly larger beast.
+    if (this.wave % 10 === 0) {
+      this.wavePhase = 'kraken';
+      this.waveRemaining = 0;
+      const arms = 5 + Math.floor(this.wave / 10);
+      this.kraken = new Kraken(CX, 300, arms, this.wave);
+      this.camera.noStop = true;
+      this.waveBanner = 3.2;
+      this.audio.boss();
+      this.camera.shake(1.2);
+    } else if (isBossWave(this.wave)) {
       this.waveRemaining = 2;
       this.spawnTimer = 2.2;
       const b = makeBoss(this.tier, this.wave, CX + rand(200, -200), -140, 26 + this.wave);
@@ -751,6 +768,47 @@ class Game {
   _closeMenu() {
     this.menu = false;
     this.paused = this._wasPaused || false;
+  }
+
+  // The finishing shot and what it does to the sky.
+  _killKraken(k) {
+    k.kill();
+    this.score += 500 + this.wave * 120;
+    this.krakenBlast = { x: k.x, y: k.y, t: 0 };
+
+    // Three stages so it reads as an event and not one puff: a white core
+    // flash, rings pushing out through it, then burning debris falling.
+    this.shockwaves.spawn(k.x, k.y, 3.2, { hue: 48, rings: 5, radius: 560 });
+    this.shockwaves.spawn(k.x, k.y, 2.4, { hue: theme.boss, rings: 3, radius: 400 });
+    this.particles.burst(k.x, k.y, 90, {
+      hue: 50, speed: 260, life: 1.9, size: 9, grav: -20, stretch: 0.9,
+    });
+    this.particles.burst(k.x, k.y, 200, {
+      hue: 22, speed: 820, life: 1.7, size: 6, grav: 190, stretch: 1.4,
+    });
+    this.particles.burst(k.x, k.y, 70, {
+      hue: theme.boss, speed: 420, life: 2.4, size: 4.5, grav: 240, stretch: 1,
+      glyphs: ['×', '=', '+', '÷', '?'],
+    });
+    // Orbs worth having: the reward for the whole fight lands on the shield.
+    for (let i = 0; i < 14; i++) {
+      this.orbs.spawn(k.x + rand(180, -180), k.y + rand(90, -90), 1.4,
+                      (x) => this.shield.domePoint(x), theme.orb);
+    }
+    this.camera.shake(2);
+    this.camera.punchIn(1.06, 0, 0);
+    this.audio.krakenDown(k.x);
+  }
+
+  // One arm: an ordinary problem from the current curriculum, so the Kraken
+  // needs to know nothing about difficulty, tiers or the adaptive plan.
+  _spawnArm() {
+    const pick = this.tier.dynamic ? pickPlan(this.plan) : null;
+    const b = makeBeast(this.tier, this.wave, this.skill, CX, 210, 0, pick);
+    b.attached = true;
+    b.speed = 0;
+    this.beasts.push(b);
+    return b;
   }
 
   _spawn() {
@@ -985,6 +1043,8 @@ class Game {
 
   // Fold the finished run into the player's profile and the score table.
   _endRun() {
+    this.kraken = null;
+    this.camera.noStop = false;
     this.state = 'gameover';
     this._releaseWake();
     this.stateTime = 0;
@@ -1016,6 +1076,10 @@ class Game {
       this.beamFx.t += dtReal;
       if (this.beamFx.t > 0.55) this.beamFx = null;
     }
+    if (this.krakenBlast) {
+      this.krakenBlast.t += dtReal;
+      if (this.krakenBlast.t > 0.85) this.krakenBlast = null;
+    }
     if (this.chainFx.length) {
       for (const c of this.chainFx) c.t += dtReal;
       this.chainFx = this.chainFx.filter((c) => c.t < c.life);
@@ -1045,6 +1109,29 @@ class Game {
       if (this.phaseTimer <= 0) {
         this.camera.release();
         this._nextWave();
+      }
+    } else if (this.wavePhase === 'kraken' && this.kraken) {
+      const k = this.kraken;
+      k.update(dt, () => this._spawnArm(), (arm) => {
+        this.audio.wrong(arm.x);
+        this.camera.shake(0.3);
+      });
+      // The last arm does not kill it. The core opens, the turret winds up,
+      // and one shot finishes it -- an ending rather than a disappearance.
+      if (k.alive && k.spent && this.beasts.length === 0 && k.phase === 'fight') {
+        k.expose();
+        this.audio.charged();
+        this.camera.shake(0.5);
+      }
+      // `k.alive` matters: readyToBlow stays true once the charge completes,
+      // and update() freezes phaseT while dying, so without this the finisher
+      // re-fired every frame -- resetting the death timer so the wave never
+      // ended, and paying the kill bonus sixty times a second.
+      if (k.alive && k.readyToBlow) this._killKraken(k);
+      if (!k.alive && k.dieT > 1.4) {
+        this.kraken = null;
+        this.camera.noStop = false;
+        this._endWave();
       }
     } else if (this.waveRemaining > 0) {
       this.spawnTimer -= dt;
@@ -1114,13 +1201,21 @@ class Game {
     this.lastStandT = damp(this.lastStandT, stand, 2.6, dtReal);
     this.audio.setDanger(this.danger);
 
-    const nearMiss = !theme.reducedMotion && maxProgress > 0.86 && this.targetBeast;
-    this.camera.slowmo = damp(this.camera.slowmo, nearMiss ? 1 : 0, 7, dtReal);
-    if (nearMiss) {
-      const b = this.targetBeast;
-      this.camera.punchIn(1.14, (b.x - W / 2) * 0.35, (b.y - H / 2) * 0.35);
-    } else if (this.wavePhase !== 'interlude') {
-      this.camera.release();
+    // The Kraken owns the camera for the duration: pulled back to open the
+    // field, and no bullet time. The fight's pressure is the clock, and slow
+    // motion hands that back every time an arm gets close.
+    if (this.kraken) {
+      this.camera.slowmo = damp(this.camera.slowmo, 0, 9, dtReal);
+      this.camera.punchIn(0.74, 0, 46);
+    } else {
+      const nearMiss = !theme.reducedMotion && maxProgress > 0.86 && this.targetBeast;
+      this.camera.slowmo = damp(this.camera.slowmo, nearMiss ? 1 : 0, 7, dtReal);
+      if (nearMiss) {
+        const b = this.targetBeast;
+        this.camera.punchIn(1.14, (b.x - W / 2) * 0.35, (b.y - H / 2) * 0.35);
+      } else if (this.wavePhase !== 'interlude') {
+        this.camera.release();
+      }
     }
   }
 
@@ -1166,6 +1261,11 @@ class Game {
     ctx.save();
     this.camera.apply(ctx, W, H);
 
+    if (this.kraken) {
+      this.kraken.draw(ctx);
+      if (this.kraken.charge > 0) this._drawFinisher(ctx, this.kraken);
+    }
+    if (this.krakenBlast) this._drawBlast(ctx);
     for (const b of this.beasts) b.drawBeam(ctx, this.shield.domeY(b.x), this.time);
     this.shield.draw(ctx);
     if (this.state === 'playing') this.turret.draw(ctx, this.danger, this.overcharge);
@@ -1262,6 +1362,56 @@ class Game {
       ctx.lineWidth = 1.6 * k;
       ctx.stroke();
     }
+    ctx.restore();
+  }
+
+  // The finishing shot: the turret winds up and lets go in one line.
+  _drawFinisher(ctx, k) {
+    const c = k.charge;
+    const x0 = this.turret.x;
+    const y0 = this.turret.y - 18;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    // The charge gathering at the muzzle before any of it leaves.
+    const gr = 8 + c * 46;
+    const g = ctx.createRadialGradient(x0, y0, 0, x0, y0, gr);
+    g.addColorStop(0, `rgba(255,255,255,${0.5 + c * 0.5})`);
+    g.addColorStop(1, 'hsla(190,100%,60%,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(x0, y0, gr, 0, TAU);
+    ctx.fill();
+
+    // A thin sighting line that thickens into the shot.
+    const w = 1 + Math.pow(c, 3) * 40;
+    ctx.strokeStyle = `hsla(190, 100%, ${72 + c * 28}%, ${0.25 + c * 0.75})`;
+    ctx.lineWidth = w;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(k.x, k.y);
+    ctx.stroke();
+    if (c > 0.6) {
+      ctx.strokeStyle = `rgba(255,255,255,${(c - 0.6) / 0.4})`;
+      ctx.lineWidth = w * 0.3;
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // A white flash over the whole sky, fading fast.
+  _drawBlast(ctx) {
+    const b = this.krakenBlast;
+    const k = 1 - clamp(b.t / 0.85, 0, 1);
+    if (k <= 0) return;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const g = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, 900 * (1 - k * 0.5));
+    g.addColorStop(0, `rgba(255,255,255,${k})`);
+    g.addColorStop(0.25, `hsla(44,100%,72%,${k * 0.8})`);
+    g.addColorStop(1, 'hsla(20,100%,55%,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(b.x - 900, b.y - 900, 1800, 1800);
     ctx.restore();
   }
 
