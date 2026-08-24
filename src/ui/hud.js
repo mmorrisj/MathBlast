@@ -48,11 +48,12 @@ const TIER_Y = 470;
 // the same destinations as buttons.
 export const TITLE_CHIPS = [
   { id: 'help', label: 'HOW TO PLAY' },
+  { id: 'codex', label: 'THE CODEX' },
   { id: 'board', label: 'TOP 20' },
   { id: 'sky', label: 'YOUR SKY' },
   { id: 'report', label: 'PROGRESS' },
 ];
-const CHIP_W = 250;
+const CHIP_W = 208;
 const CHIP_H = 64;
 const CHIP_GAP = 16;
 const CHIP_Y = 618;
@@ -759,7 +760,8 @@ export function drawTitle(ctx, W, H, t, g) {
   } else {
     ctx.font = `600 15px ${MONO}`;
     ctx.fillStyle = `hsla(${theme.friendly},90%,72%,0.9)`;
-    ctx.fillText('H HOW TO PLAY   T TOP 20   S YOUR SKY   G PROGRESS', W / 2, TIER_Y + TIER_H + 92);
+    ctx.fillText('H HOW TO PLAY   K THE CODEX   T TOP 20   S YOUR SKY   G PROGRESS',
+                 W / 2, TIER_Y + TIER_H + 92);
   }
 
   if (g) drawScores(ctx, g.scores, W / 2, 250, W, { limit: 5, width: 420 });

@@ -1150,16 +1150,26 @@ async function main() {
     g.menu = false; g.help = false; g.board = false; g.sky = false; g.report = false;
     g.state = 'title';
   });
+  // Positions come from the real layout rather than being copied here: the row
+  // has gained a chip once already, and a duplicated constant just goes stale.
+  const chipXs = await pg.evaluate(async () => {
+    const { TITLE_CHIPS, chipRect } = await import('/src/ui/hud.js');
+    return TITLE_CHIPS.map((c, i) => {
+      const r = chipRect(i, 1280);
+      return { id: c.id, x: r.x + r.w / 2, y: r.y + r.h / 2 };
+    });
+  });
   const chipHits = {};
-  for (const [i, key] of [[0, 'help'], [1, 'board'], [2, 'sky'], [3, 'report']]) {
-    await tap(640 - (4 * 250 + 3 * 16) / 2 + i * 266 + 125, 650);
-    chipHits[key] = await pg.evaluate((k) => ({
+  for (const c of chipXs) {
+    await tap(c.x, c.y);
+    chipHits[c.id] = await pg.evaluate((k) => ({
       open: Boolean(window.game[k]), playing: window.game.state === 'playing',
-    }), key);
-    await pg.evaluate((k) => { window.game[k] = false; }, key);
+    }), c.id);
+    await pg.evaluate((k) => { window.game[k] = false; }, c.id);
   }
   check('every title-screen destination is a button on a touchscreen',
-        ['help', 'board', 'sky', 'report'].every((k) => chipHits[k].open && !chipHits[k].playing));
+        chipXs.every((c) => chipHits[c.id].open && !chipHits[c.id].playing),
+        JSON.stringify(chipHits));
   // And the fallback still works: a tap that is not a chip or a tier plays.
   await tap(640, 200);
   check('tapping elsewhere on the title still starts a run',
@@ -1680,6 +1690,87 @@ async function main() {
   check('each mode keeps its own table',
         boards.practice.join(',') === 'ADDER' &&
         boards.modes.join(',') === 'arcade,practice:add');
+
+  // --- the codex -------------------------------------------------------------
+  //
+  // The page draws the real beasts and encounters, so the thing that can break
+  // it is any entry whose example fails to build or fails to draw. Every one
+  // gets opened and rendered.
+  const codex = await state(async () => {
+    const { ENTRIES } = await import('/src/codex.js');
+    const g = window.game;
+    g.state = 'title';
+    g._openCodex();
+    const bad = [];
+    const noTrick = [];
+    const shortSteps = [];
+    for (let i = 0; i < ENTRIES.length; i++) {
+      g.codexIndex = i;
+      // Reroll a few times: the examples are generated, so a rare shape must
+      // not be the one that throws in front of a child.
+      for (let r = 0; r < 6; r++) {
+        try {
+          g._codexRoll();
+          if (!g.codexShown || !g.codexShown.thing) { bad.push(ENTRIES[i].id + ':build'); break; }
+          if (!g.codexShown.steps.length) shortSteps.push(ENTRIES[i].id);
+          g.draw();
+        } catch (e) { bad.push(ENTRIES[i].id + ':' + e.message); break; }
+      }
+      if (!ENTRIES[i].trick) noTrick.push(ENTRIES[i].id);
+    }
+    // Every entry explains the example actually on screen, so a reroll has to
+    // change the working, not just the picture.
+    g.codexIndex = ENTRIES.findIndex((e) => e.id === 'mult');
+    const seen = new Set();
+    for (let r = 0; r < 12; r++) { g._codexRoll(); seen.add(g.codexShown.steps.join('|')); }
+
+    const open = g.codex;
+    g.codex = false;
+    return { count: ENTRIES.length, bad, noTrick, shortSteps, open, variants: seen.size };
+  });
+  check('every codex entry builds and draws its example',
+        codex.bad.length === 0 && codex.shortSteps.length === 0 && codex.count === 21,
+        JSON.stringify(codex.bad.slice(0, 4)));
+  check('every entry offers a real mental trick', codex.noTrick.length === 0,
+        JSON.stringify(codex.noTrick));
+  check('rerolling gives a new problem and new working', codex.variants > 4);
+
+  // Navigation, and the one key that must not be stolen: x types the
+  // multiplication sign so a factor rock can be answered as a pair.
+  const codexKeys = await state(() => {
+    const g = window.game;
+    g.state = 'title';
+    const press = (key) => window.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+    // Reopening keeps your place, which is what you want when you are flicking
+    // between the page and the game -- so the start point is set here rather
+    // than assumed to be zero.
+    g.codexIndex = 0;
+    press('k');
+    const opened = g.codex;
+    const first = g.codexIndex;
+    press('ArrowRight');
+    const moved = g.codexIndex;
+    press('ArrowLeft'); press('ArrowLeft');
+    const wrapped = g.codexIndex;
+    press('Escape');
+    const closed = !g.codex;
+
+    // Mid-run, x must still reach the answer box.
+    g._begin();
+    g.input = '';
+    press('6'); press('x'); press('8');
+    const typed = g.input;
+    press('k');
+    const openMidRun = g.codex;
+    g.codex = false;
+    g.state = 'title';
+    return { opened, first, moved, wrapped, closed, typed, openMidRun };
+  });
+  check('the codex opens on K, browses, wraps and closes',
+        codexKeys.opened && codexKeys.first === 0 && codexKeys.moved === 1 &&
+        codexKeys.wrapped === 20 && codexKeys.closed, JSON.stringify(codexKeys));
+  check('opening it does not steal the key that types a factor pair',
+        codexKeys.typed === '6×8' && codexKeys.openMidRun, JSON.stringify(codexKeys));
 
   const reportPage = await state(() => {
     const g = window.game;

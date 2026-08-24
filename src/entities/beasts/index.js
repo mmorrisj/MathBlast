@@ -29,7 +29,8 @@ export const isBossWave = (wave) => wave >= 5 && wave % 5 === 0;
 
 // A composite worth factoring, sized to the wave, with the occasional prime
 // mixed in so the player has to notice the difference.
-function splitNumber(wave, hard) {
+// Exported for the Codex, which needs the same numbers the game would spawn.
+export function splitNumber(wave, hard) {
   if (Math.random() < 0.28) {
     const primes = hard
       ? [11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53]
@@ -40,7 +41,7 @@ function splitNumber(wave, hard) {
   return randInt(2, hi) * randInt(2, clamp(hi + 3, 3, 12));
 }
 
-function fractionPair(wave) {
+export function fractionPair(wave) {
   const q = randInt(3, clamp(4 + Math.floor(wave / 2), 4, 10));
   let p = randInt(1, q - 1);
   if (Math.random() < 0.5 && gcd(p, q) === 1 && q % 2 === 0) p = Math.max(1, p - (p % 2));

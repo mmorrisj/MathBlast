@@ -30,6 +30,8 @@ import { Quality } from './quality.js';
 import { touchButtons, touchHitTest, drawTouchButtons, drawRotate } from './ui/touch.js';
 import { drawProfiles, profileHitTest, nameButton, backButton, drawScores, drawLeaderboard, MAX_ROWS } from './ui/profile.js';
 import { drawStarChart } from './ui/starchart.js';
+import { drawCodex, codexHitTest, codexArtHit, codexCount } from './ui/codex.js';
+import { ENTRIES as CODEX } from './codex.js';
 import { drawProgress } from './ui/progress.js';
 import { drawMenu, menuItems, menuHitTest } from './ui/menu.js';
 import { makeBoss, bossOrigin, isBossWave, isLeviathan, DemandBeast } from './entities/bosses/index.js';
@@ -93,6 +95,9 @@ class Game {
     this.boardMode = null;   // which mode's table it is showing
     this.sky = false;        // the star chart
     this.report = false;     // the progress page, for a parent
+    this.codex = false;      // the field guide to every challenge
+    this.codexIndex = 0;
+    this.codexShown = null;  // the live example currently on the page
     this.menu = false;
     this.menuIndex = 0;
     // Recomputed at each wave boundary rather than per spawn, so a wave is a
@@ -276,6 +281,22 @@ class Game {
         if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') this.report = false;
         return;
       }
+      // K, not X: x and * type the multiplication sign so a factor rock's
+      // "? × ?" can be answered as a pair, and stealing it here would break
+      // answering mid-run. Reachable during a run as well as from the title,
+      // so a player stuck on the thing that just beat them can go and read
+      // about it.
+      if (e.key === 'k' || e.key === 'K') {
+        this.codex ? (this.codex = false) : this._openCodex();
+        return;
+      }
+      if (this.codex) {
+        if (e.key === 'ArrowLeft') { this._codexMove(-1); return; }
+        if (e.key === 'ArrowRight') { this._codexMove(1); return; }
+        if (e.key === 'r' || e.key === 'R') { this._codexRoll(); this._tick(); return; }
+        if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') this.codex = false;
+        return;
+      }
 
       if (this.state === 'title') {
         // Up and down move between modes; left and right move within whatever
@@ -358,6 +379,15 @@ class Game {
       if (this.board) { this.board = false; return; }
       if (this.sky) { this.sky = false; return; }
       if (this.report) { this.report = false; return; }
+      if (this.codex) {
+        // The dots jump, the picture rerolls, anything else closes -- so there
+        // is always a way out without hunting for a button.
+        const dot = codexHitTest(px, py, W, H);
+        if (dot >= 0) { this._codexTo(dot); return; }
+        if (codexArtHit(px, py)) { this._codexRoll(); this._tick(); return; }
+        this.codex = false;
+        return;
+      }
       if (this.menu) {
         const hit = menuHitTest(px, py, this, W);
         // A tap outside the list closes it, so there is always a way out even
@@ -603,6 +633,40 @@ class Game {
   }
 
   _tick() { this.audio.plate ? this.audio.plate() : this.audio.fire(640); }
+
+  // --- the codex ----------------------------------------------------------
+
+  // Build the example for the entry now on screen. Called on open, on every
+  // move, and on reroll -- the page holds no state of its own beyond which
+  // entry it is looking at.
+  _codexRoll() {
+    const entry = CODEX[clamp(this.codexIndex, 0, CODEX.length - 1)];
+    try {
+      this.codexShown = entry.make();
+    } catch {
+      // An example that cannot be built must not take the page down with it.
+      this.codexShown = { thing: null, steps: ['(could not build an example)'] };
+    }
+  }
+
+  _openCodex() {
+    this.codex = true;
+    this._codexRoll();
+  }
+
+  _codexMove(step) {
+    const n = codexCount();
+    this.codexIndex = (((this.codexIndex + step) % n) + n) % n;
+    this._codexRoll();
+    this._tick();
+  }
+
+  _codexTo(i) {
+    if (i === this.codexIndex) { this._codexRoll(); return; }
+    this.codexIndex = clamp(i, 0, codexCount() - 1);
+    this._codexRoll();
+    this._tick();
+  }
 
   _chooseProfile(i) {
     const shown = Math.min(this.profiles.list.length, MAX_ROWS);
@@ -1222,6 +1286,7 @@ class Game {
       case 'sky': this._closeMenu(); this.sky = true; break;
       case 'report': this._closeMenu(); this.report = true; break;
       case 'help': this._closeMenu(); this.help = true; break;
+      case 'codex': this._closeMenu(); this._openCodex(); break;
       case 'mute': this.audio.toggleMute(); break;
       case 'quit':
         this._closeMenu();
@@ -1570,6 +1635,8 @@ class Game {
       drawStarChart(this.out, this, W, H, this.time);
     } else if (this.report) {
       drawProgress(this.out, this, W, H, dayKey());
+    } else if (this.codex) {
+      drawCodex(this.out, this, W, H, this.time);
     } else if (this.state === 'profile') {
       drawProfiles(this.out, this, W, H, this.time);
     } else {
