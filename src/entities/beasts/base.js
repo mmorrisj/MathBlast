@@ -4,8 +4,13 @@
 // correct answer. The base owns motion, damage reaction, the death timer and
 // the landing beam, so every beast type reacts to the game the same way.
 
-import { TAU, rand, clamp } from '../../util.js';
+import { TAU, rand, clamp, easeOutCubic } from '../../util.js';
 import { theme } from '../../theme.js';
+
+// How long a beast spends closing from far off, and how small it starts.
+// Short enough that it never feels like a wait, long enough to be an arrival.
+const ARRIVE = 0.7;
+const FAR = 0.26;
 
 let nextId = 1;
 
@@ -26,12 +31,37 @@ export class Beast {
     this.hue = theme.hostile + rand(16, -6);
     this.rises = false;
     this.w = 60; this.h = 60;
+    // Already here, unless something explicitly sends it through a seam.
+    // Arrival belongs to spawning, not to construction: a Kraken arm held in
+    // orbit or a beast placed by a test has not travelled from anywhere, and
+    // shrinking it in would be a lie about where it came from.
+    this.arriveT = ARRIVE;
   }
 
   get bottom() { return this.y + this.h / 2; }
   get top() { return this.y - this.h / 2; }
   get alive() { return this.state === 'alive'; }
   get gone() { return this.state === 'dead'; }
+
+  // The arrival.
+  //
+  // Beasts used to spawn at y = -80 to -200, entirely off screen, and drift in.
+  // That made their first *legible* moment three to eight seconds after they
+  // existed -- and since targeting reads the whole list, a quick player could
+  // answer a problem off the HUD without ever having seen the thing carrying
+  // it. So they arrive on screen instead, small and far off, and close.
+  //
+  // Nothing is lost by the delay: the beast descends normally throughout, so
+  // it is simply visible sooner than it used to be readable.
+  get arriving() { return this.arriveT < ARRIVE; }
+  // 0 = just materialised and far off, 1 = fully here.
+  get arrival() { return clamp(this.arriveT / ARRIVE, 0, 1); }
+  // Scale it is drawn at while closing. Not applied to hit tests: a beast that
+  // cannot be answered yet should not be clickable either.
+  get arriveScale() { return FAR + (1 - FAR) * easeOutCubic(this.arrival); }
+  // Answerable only once it is here. This is the guard that stops a problem
+  // being solved off the readout before the beast is on screen.
+  get ready() { return this.alive && !this.arriving; }
 
   // Numeric weight of this problem; drives explosion size, orb payout and the
   // register of the kill tone.
@@ -71,6 +101,7 @@ export class Beast {
 
   update(dt) {
     this.t += dt;
+    if (this.state === 'alive') this.arriveT += dt;
     if (this.state === 'dying') {
       this.dieT += dt;
       if (this.dieT >= this.dieFor) this.state = 'dead';

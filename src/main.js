@@ -3,7 +3,7 @@
 // Fixed 1280x720 virtual resolution drawn straight into the visible canvas and
 // letterboxed by CSS, so render cost is constant regardless of window size.
 
-import { clamp, damp, rand, randInt, power, TAU } from './util.js';
+import { clamp, damp, rand, randInt, power, TAU, easeOutCubic } from './util.js';
 import { theme, setThemeWave, setColorSafe, setReducedMotion } from './theme.js';
 import { Audio } from './audio.js';
 import { SkillTable, makeChoices } from './problems.js';
@@ -45,6 +45,15 @@ const INTERLUDE = 2.3;
 const NOVA_OUT = 1.05;     // the bright half
 const NOVA_HANG = 0.35;    // debris slowing, hanging there
 const NOVA_IN = 0.85;      // and falling back into a point
+// Where a beast comes through, and how long the seam takes to open. The old
+// spawn was y = -80 to -200 -- off screen, invisible for one to two and a half
+// seconds, and not clear of the HUD scrim for three to eight. On screen from
+// the first frame instead, with the whole descent still ahead of it.
+// Low enough that the whole seam fits on screen -- at 62 the top third of it
+// was cut off by the edge, which read as a beam coming from somewhere rather
+// than a door opening.
+const ARRIVE_Y = 96;
+const WARP = 0.42;
 
 class Game {
   constructor(canvas) {
@@ -163,6 +172,7 @@ class Game {
     this._surging = false;
     this.beasts = [];
     this.shots = [];
+    this.warps = [];
     this.particles.clear();
     this.shockwaves.clear();
     this.orbs.clear();
@@ -187,6 +197,7 @@ class Game {
     this.camera.noStop = false;
     this.phaseTimer = 0;
     this.waveMisses = 0;
+    this.waveOpenT = 0;
     // Seconds actually spent playing. Paused, in a menu, on the title screen or
     // with the tab hidden does not count -- otherwise the board would rank
     // whoever left the tab open the least, not whoever was quickest.
@@ -758,7 +769,7 @@ class Game {
   // Step through the beasts left-to-right on screen.
   _cycleTarget(dir) {
     const list = this.beasts
-      .filter((b) => b.alive && !b.locked)
+      .filter((b) => b.ready && !b.locked)
       .sort((a, b) => a.x - b.x);
     if (list.length < 2) return;
     const i = list.indexOf(this.targetBeast);
@@ -771,7 +782,10 @@ class Game {
     const p = this.camera.screenToWorld(px, py, W, H);
     let best = null, bd = Infinity;
     for (const b of this.beasts) {
-      if (!b.alive || b.locked) continue;
+      // Not clickable while it is still closing -- it is drawn small, and a
+      // full-size hit box around a quarter-size shape catches taps aimed at
+      // whatever is behind it.
+      if (!b.ready || b.locked) continue;
       const reach = Math.max(b.w, b.h) / 2 + 34;
       const d = Math.hypot(b.x - p.x, b.y - p.y);
       if (d < reach && d < bd) { bd = d; best = b; }
@@ -883,6 +897,7 @@ class Game {
     this.audio.setWave(this.wave);
     this.waveBanner = 2.2;
     this.waveMisses = 0;
+    this.waveOpenT = 1.5;
     this.wavePhase = 'active';
     this.boss = null;
     this.bossBanner = 0;
@@ -1067,13 +1082,35 @@ class Game {
     this.audio.charged();
   }
 
+  // Spawning happens in two beats: a seam of light opens where something is
+  // about to arrive, and the beast comes through it.
+  //
+  // The seam is the half that answers "I never see them appear". Even a player
+  // fast enough to clear the board between arrivals sees the door open, so the
+  // field reads as a place things come from rather than one where they turn up
+  // behind your back.
   _spawn() {
     const x = clamp(rand(W - 160, 160), 120, W - 120);
+    this.warps.push({ x, t: 0 });
+    this.waveRemaining--;
+  }
+
+  // The seam finished opening: put the beast through it, on screen.
+  _emerge(x) {
     const speed = descentRate(this.tier, this._paceWave()) + rand(10);
     const pick = this.plan.length ? pickPlan(this.plan) : null;
-    this.beasts.push(
-      makeBeast(this.tier, this.wave, this.skill, x, -80 - rand(120), speed, pick));
-    this.waveRemaining--;
+    // ARRIVE_Y, not -80: high enough to leave the whole descent ahead of it,
+    // low enough to be on screen from its first frame.
+    const b = makeBeast(this.tier, this.wave, this.skill, x, ARRIVE_Y, speed, pick);
+    // The one place that opts a beast into the arrival: it came through a seam,
+    // so it closes from far off.
+    b.arriveT = 0;
+    this.beasts.push(b);
+    this.shockwaves.spawn(x, ARRIVE_Y, 0.5, { hue: theme.hostile, rings: 2, radius: 120 });
+    this.particles.burst(x, ARRIVE_Y, 14, {
+      hue: theme.hostile + 20, speed: 190, life: 0.5, size: 3, stretch: 1.2,
+    });
+    this.audio.warp ? this.audio.warp(x) : null;
   }
 
   // --- resolution --------------------------------------------------------
@@ -1461,8 +1498,21 @@ class Game {
         this._spawn();
         this.spawnTimer = clamp(2.8 - this.wave * 0.14, 0.9, 2.8) + rand(0.6);
       }
-    } else if (this.beasts.length === 0) {
+    } else if (this.beasts.length === 0 && this.warps.length === 0) {
+      // A pending seam counts as an unspawned beast. Without that the wave
+      // could end in the gap between the door opening and the thing coming
+      // through it.
       this._endWave();
+    }
+
+    // Seams. Each opens, then hands over a beast and closes.
+    for (let i = 0; i < this.warps.length; i++) {
+      const w = this.warps[i];
+      w.t += dt;
+      if (w.t >= WARP) {
+        this._emerge(w.x);
+        this.warps.splice(i--, 1);
+      }
     }
 
     let maxProgress = 0;
@@ -1482,14 +1532,18 @@ class Game {
     let target = null;
     if (this.manualTargetId != null) {
       const held = this.beasts.find(
-        (b) => b.id === this.manualTargetId && b.alive && !b.locked,
+        (b) => b.id === this.manualTargetId && b.ready && !b.locked,
       );
       if (held) target = held;
       else this.manualTargetId = null;
     }
     if (!target) {
       for (const b of this.beasts) {
-        if (!b.alive || b.locked) continue;
+        // `ready`, not `alive`: a beast still closing from far off is not
+        // answerable. Targeting reads the whole list, so without this a quick
+        // player solves a problem off the readout before the thing carrying it
+        // has finished arriving -- which is how they never saw one appear.
+        if (!b.ready || b.locked) continue;
         // Bosses always take priority; otherwise the closest to doing damage.
         const score = (b.isBoss ? 1000 : 0) + b.progress(this.shield);
         if (!target || score > target._score) { target = b; target._score = score; }
@@ -1536,9 +1590,17 @@ class Game {
     } else {
       const nearMiss = !theme.reducedMotion && maxProgress > 0.86 && this.targetBeast;
       this.camera.slowmo = damp(this.camera.slowmo, nearMiss ? 1 : 0, 7, dtReal);
+      if (this.waveOpenT > 0) this.waveOpenT -= dtReal;
       if (nearMiss) {
         const b = this.targetBeast;
         this.camera.punchIn(1.14, (b.x - W / 2) * 0.35, (b.y - H / 2) * 0.35);
+      } else if (this.waveOpenT > 0 && !theme.reducedMotion) {
+        // A wide shot as a wave opens, easing back before anyone has to read
+        // anything. A *permanent* pull-back would be the wrong trade -- the
+        // beasts are text, and zooming out shrinks the one thing that has to
+        // stay legible -- but the establishing beat costs nothing here, because
+        // the first arrivals are still closing and unreadable anyway.
+        this.camera.punchIn(0.9, 0, 26);
       } else if (this.wavePhase !== 'interlude') {
         this.camera.release();
       }
@@ -1592,10 +1654,29 @@ class Game {
       if (this.boss.charge > 0) this._drawFinisher(ctx, this.boss);
     }
     if (this.bossBlast) this._drawBlast(ctx);
-    for (const b of this.beasts) b.drawBeam(ctx, this.shield.domeY(b.x), this.time);
+    for (const b of this.beasts) {
+      if (!b.arriving) b.drawBeam(ctx, this.shield.domeY(b.x), this.time);
+    }
+    if (this.warps.length) this._drawWarps(ctx);
     this.shield.draw(ctx);
     if (this.state === 'playing') this.turret.draw(ctx, this.danger, this.overcharge);
-    for (const b of this.beasts) b.draw(ctx, b === this.targetBeast);
+    for (const b of this.beasts) {
+      // Closing from far off: drawn small and hazy around its own centre, so
+      // the arrival reads as depth rather than as something popping into
+      // existence at full size.
+      if (b.arriving) {
+        const k = b.arriveScale;
+        ctx.save();
+        ctx.globalAlpha = 0.35 + b.arrival * 0.65;
+        ctx.translate(b.x, b.y);
+        ctx.scale(k, k);
+        ctx.translate(-b.x, -b.y);
+        b.draw(ctx, false);
+        ctx.restore();
+      } else {
+        b.draw(ctx, b === this.targetBeast);
+      }
+    }
     for (const s of this.shots) s.draw(ctx);
     if (this.chainFx.length) this._drawChains(ctx);
     if (this.beamFx) this._drawBeam(ctx);
@@ -1659,6 +1740,42 @@ class Game {
       this.out.fillText('PAUSED', W / 2, H / 2);
       this.out.restore();
     }
+  }
+
+  // The door opening. A vertical seam of light that widens, brightens and then
+  // snaps shut as the beast comes through -- the one thing a player who clears
+  // the board faster than it refills still sees, so the field stops feeling
+  // like things arrive behind their back.
+  _drawWarps(ctx) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (const w of this.warps) {
+      const k = clamp(w.t / WARP, 0, 1);
+      // Opens fast, holds, then pinches at the very end as it delivers.
+      const open = k < 0.75 ? easeOutCubic(k / 0.75) : 1 - (k - 0.75) / 0.25;
+      const halfH = 10 + open * 58;
+      const halfW = 1.5 + open * 9;
+
+      const g = ctx.createLinearGradient(w.x - halfW * 5, 0, w.x + halfW * 5, 0);
+      g.addColorStop(0, `hsla(${theme.hostile}, 100%, 60%, 0)`);
+      g.addColorStop(0.5, `hsla(${theme.hostile + 14}, 100%, 74%, ${0.5 * open})`);
+      g.addColorStop(1, `hsla(${theme.hostile}, 100%, 60%, 0)`);
+      ctx.fillStyle = g;
+      ctx.fillRect(w.x - halfW * 5, ARRIVE_Y - halfH, halfW * 10, halfH * 2);
+
+      // The seam itself: a hot white line down the middle.
+      ctx.fillStyle = `rgba(255,240,250,${0.35 + open * 0.6})`;
+      ctx.fillRect(w.x - halfW * 0.5, ARRIVE_Y - halfH, halfW, halfH * 2);
+
+      // Caps, so it reads as an opening rather than a stripe.
+      for (const dir of [-1, 1]) {
+        ctx.beginPath();
+        ctx.arc(w.x, ARRIVE_Y + dir * halfH, halfW * 1.6, 0, TAU);
+        ctx.fillStyle = `hsla(${theme.hostile + 20}, 100%, 80%, ${0.5 * open})`;
+        ctx.fill();
+      }
+    }
+    ctx.restore();
   }
 
   // A jagged bolt between two answers that share a factor.

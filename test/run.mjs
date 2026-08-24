@@ -1560,6 +1560,80 @@ async function main() {
         ledger.yesterdayRun === 3 && ledger.acrossGap === 3 && ledger.stale === 0);
   check('the day log is capped', ledger.kept === 120 && ledger.recentLen === 30);
 
+  // --- arrivals ---------------------------------------------------------------
+  //
+  // Reported as "the aliens float into view -- if the user is quick they never
+  // see them appear". They spawned at y = -80 to -200, off screen, and were
+  // targetable the whole time they were invisible, so a fast player answered
+  // problems carried by things they had never seen.
+  const arrival = await state(() => {
+    const g = window.game;
+    g.state = 'title';
+    g.mode = 'tier';
+    g._begin();
+    g.beasts.length = 0; g.warps.length = 0;
+    g.waveRemaining = 0; g.spawnTimer = 999;
+    g._spawn();
+
+    let seamOnly = 0, born = -1, ready = -1, offScreen = 0, targetableUnseen = 0;
+    let minScale = 1;
+    for (let f = 0; f < 200; f++) {
+      g.update(1 / 60);
+      if (!g.beasts.length) { seamOnly++; continue; }
+      const b = g.beasts[0];
+      if (born < 0) born = f;
+      if (b.top < 0) offScreen++;
+      if (b.arriving) minScale = Math.min(minScale, b.arriveScale);
+      // The guard: nothing may be answerable before it has finished arriving.
+      if (b.arriving && (b.ready || g.targetBeast === b)) targetableUnseen++;
+      if (ready < 0 && b.ready) ready = f;
+    }
+    const b = g.beasts[0];
+    return {
+      seamOnly, born, ready, offScreen, targetableUnseen,
+      minScale: +minScale.toFixed(2),
+      // Still most of the descent left once it is answerable.
+      room: Math.round(g.shield.domeY(b.x) - b.y),
+    };
+  });
+  check('a seam opens before anything comes through it',
+        arrival.seamOnly > 12 && arrival.born > 12, JSON.stringify(arrival));
+  check('the beast arrives on screen rather than drifting in from above',
+        arrival.offScreen === 0, JSON.stringify(arrival));
+  check('it closes from far off, small, then is answerable',
+        arrival.minScale < 0.4 && arrival.ready > arrival.born &&
+        arrival.ready - arrival.born < 60, JSON.stringify(arrival));
+  check('nothing can be answered before it has finished arriving',
+        arrival.targetableUnseen === 0, JSON.stringify(arrival));
+  check('arriving costs no meaningful descent', arrival.room > 380,
+        JSON.stringify(arrival));
+
+  // A beast placed by anything other than a seam has not travelled from
+  // anywhere -- a Kraken arm held in orbit must not shrink itself in.
+  const notArriving = await state(async () => {
+    const M = await import('/src/entities/beasts/index.js');
+    const b = new M.MultBeast(6, 7, 400, 200, 0);
+    return { ready: b.ready, arriving: b.arriving };
+  });
+  check('a beast that did not come through a seam is already here',
+        notArriving.ready && !notArriving.arriving);
+
+  // The wave opens wide and eases back, rather than living zoomed out: the
+  // beasts are text, and a permanent pull-back shrinks the thing that has to
+  // stay readable.
+  const waveOpen = await state(() => {
+    const g = window.game;
+    g.state = 'title';
+    g.mode = 'tier';
+    g._begin();
+    for (let f = 0; f < 20; f++) g.update(1 / 60);
+    const opened = g.camera.targetZoom;
+    for (let f = 0; f < 60 * 4; f++) g.update(1 / 60);
+    return { opened, settled: g.camera.targetZoom };
+  });
+  check('a wave opens wide, then comes back to full size',
+        waveOpen.opened < 0.95 && waveOpen.settled === 1, JSON.stringify(waveOpen));
+
   // --- arcade and practice ---------------------------------------------------
   //
   // Two modes with a finish line, in a game that until now could only be lost.
