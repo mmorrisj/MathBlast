@@ -160,6 +160,7 @@ export class Twins extends Encounter {
   }
 
   static get title() { return 'THE TWINS'; }
+  static get salvo() { return 2; }
   static get tagline() { return 'SAME ANSWER, BOTH AT ONCE'; }
   static get zoom() { return 0.84; }
   static get remnant() { return { glyph: '=', hue: 286 }; }
@@ -303,6 +304,7 @@ export class Remainder extends Encounter {
   }
 
   static get title() { return 'THE REMAINDER'; }
+  static get salvo() { return 2; }
   static get tagline() { return 'DIVIDE IT CLEAN'; }
   static get zoom() { return 0.86; }
   static get remnant() { return { glyph: '÷', hue: 148 }; }
@@ -469,6 +471,7 @@ export class Cipher extends Encounter {
   }
 
   static get title() { return 'THE CIPHER'; }
+  static get salvo() { return 2; }
   static get tagline() { return 'WORK OUT WHAT IT IS'; }
   static get zoom() { return 0.86; }
   static get remnant() { return { glyph: '?', hue: 268 }; }
@@ -577,6 +580,7 @@ export class Nought extends Encounter {
   }
 
   static get title() { return 'THE NOUGHT'; }
+  static get salvo() { return 3; }
   static get tagline() { return 'BRING IT BACK TO ZERO'; }
   static get zoom() { return 0.8; }
   static get remnant() { return { glyph: '0', hue: 210 }; }

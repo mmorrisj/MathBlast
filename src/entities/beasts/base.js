@@ -36,6 +36,7 @@ export class Beast {
     // orbit or a beast placed by a test has not travelled from anywhere, and
     // shrinking it in would be a lie about where it came from.
     this.arriveT = ARRIVE;
+    this.sealed = false;            // a boss holds its own core shut mid-volley
   }
 
   get bottom() { return this.y + this.h / 2; }
@@ -59,9 +60,11 @@ export class Beast {
   // Scale it is drawn at while closing. Not applied to hit tests: a beast that
   // cannot be answered yet should not be clickable either.
   get arriveScale() { return FAR + (1 - FAR) * easeOutCubic(this.arrival); }
-  // Answerable only once it is here. This is the guard that stops a problem
-  // being solved off the readout before the beast is on screen.
-  get ready() { return this.alive && !this.arriving; }
+  // Answerable only once it is here, and only while unsealed. Arriving is the
+  // guard that stops a problem being solved off the readout before the beast
+  // is on screen; sealing is what a boss does to its own core while a volley
+  // is in the air, so the incoming has to be dealt with first.
+  get ready() { return this.alive && !this.arriving && !this.sealed; }
 
   // Numeric weight of this problem; drives explosion size, orb payout and the
   // register of the kill tone.

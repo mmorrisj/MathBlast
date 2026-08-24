@@ -178,6 +178,31 @@ function drawBossBanner(ctx, g, W, H) {
   ctx.restore();
 }
 
+// Sealed or open. A boss that fires salvos is unanswerable while any of them
+// is in the air, and without saying so the player just finds the answer box
+// refusing them for no visible reason.
+function drawBossBeat(ctx, g, W) {
+  const b = g.boss;
+  if (!b || !b.alive || !b.salvoSize || b.exposed) return;
+  const open = b.openCore;
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `700 13px ${MONO}`;
+  if (open) {
+    // A bar draining, so the window is a length rather than a surprise.
+    const k = clamp(b.beatLeft / 7.5, 0, 1);
+    ctx.fillStyle = `hsla(${theme.friendly},95%,72%,0.92)`;
+    ctx.fillText('CORE OPEN', W / 2, 88);
+    ctx.fillStyle = `hsla(${theme.friendly},95%,64%,0.5)`;
+    ctx.fillRect(W / 2 - 90 * k, 98, 180 * k, 3);
+  } else {
+    ctx.fillStyle = `hsla(12,100%,${64 + Math.sin(g.time * 8) * 12}%,0.95)`;
+    ctx.fillText('INCOMING  ·  CORE SEALED', W / 2, 88);
+  }
+  ctx.restore();
+}
+
 // How much of the boss is left, as a row of pips under the banner.
 //
 // These used to be drawn in the world, at a per-boss offset from the body.
@@ -445,6 +470,7 @@ export function drawHud(ctx, g, W, H) {
   drawEntry(ctx, g, W, H);
   drawBossBanner(ctx, g, W, H);
   drawBossPips(ctx, g, W);
+  drawBossBeat(ctx, g, W);
   drawUnlock(ctx, g, W);
   drawLastStand(ctx, g, W, H, g.time);
   drawMastered(ctx, g, W, H);

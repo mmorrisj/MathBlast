@@ -996,6 +996,14 @@ class Game {
       curriculum: (x, y) => {
         const pick = this.plan.length ? pickPlan(this.plan) : null;
         const b = makeBeast(this.tier, this.wave, this.skill, x, y, 0, pick);
+        // Put it exactly where the boss asked, descending. A Voidling ignores
+        // the y it is handed and spawns at 820 so it can rise off the top --
+        // so a boss requesting an arm, a plate or a missile could get one that
+        // appeared at the bottom of the field and flew away from the planet
+        // rather than at it.
+        b.x = x;
+        b.y = y;
+        b.rises = false;
         b.attached = true;
         b.speed = 0;
         this.beasts.push(b);
@@ -1038,6 +1046,8 @@ class Game {
       },
       // The tier's own equation curriculum, for the Balance.
       equation: () => bossSteps(bossKind(this.tier, this.wave), this.wave),
+      // For the salvo: bosses announce themselves when they fire.
+      audio: this.audio,
     };
   }
 

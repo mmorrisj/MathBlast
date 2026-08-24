@@ -39,6 +39,7 @@ export class Hydra extends Encounter {
   }
 
   static get title() { return 'THE HYDRA'; }
+  static get salvo() { return 2; }
   static get tagline() { return 'CUT IT IN HALF'; }
   static get zoom() { return 0.7; }
   static get originY() { return 108; }
@@ -351,6 +352,7 @@ export class Prism extends Encounter {
   }
 
   static get title() { return 'THE PRISM'; }
+  static get salvo() { return 3; }
   static get tagline() { return 'ONE AMOUNT, THREE NAMES'; }
   static get zoom() { return 0.76; }
   static get originY() { return 290; }
@@ -522,6 +524,7 @@ export class Echo extends Encounter {
   }
 
   static get title() { return 'THE ECHO'; }
+  static get salvo() { return 3; }
   static get tagline() { return 'EVERY FACT YOU MISSED'; }
   static get zoom() { return 0.72; }
   static get originY() { return 220; }
@@ -564,6 +567,21 @@ export class Echo extends Encounter {
     for (const b of this.held) {
       b.y = clamp(b.y + Math.sin(this.t * 1.2 + b.id) * 26 * dt, this.y + 40, this.y + 250);
       b.x = clamp(b.x + Math.cos(this.t * 0.8 + b.id) * 34 * dt, 160, 1120);
+    }
+    // And they push each other apart. Drifting independently, two of them
+    // eventually share a spot and their labels overlap into one unreadable
+    // line -- which on this boss is the entire content.
+    for (let i = 0; i < this.held.length; i++) {
+      for (let j = i + 1; j < this.held.length; j++) {
+        const a = this.held[i], c = this.held[j];
+        const gap = a.x - c.x;
+        const want = 210;
+        if (Math.abs(gap) < want) {
+          const push = ((want - Math.abs(gap)) / 2) * (gap < 0 ? -1 : 1);
+          a.x = clamp(a.x + push, 160, 1120);
+          c.x = clamp(c.x - push, 160, 1120);
+        }
+      }
     }
   }
 

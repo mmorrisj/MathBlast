@@ -18,6 +18,9 @@ import { Beast } from '../beasts/base.js';
 
 export const EXPOSED = 0.9;     // the core laid bare, before the shot
 export const CHARGE = 1.15;     // the turret winding up; the surge is paced to it
+const FIRST_SALVO = 2.2;        // a beat to read the board before the first one
+const OPEN = 7.5;               // how long the core stays answerable
+const MISSILE = 118;            // px/s -- fast enough to matter, slow enough to solve
 
 export class Encounter {
   constructor(x, y, wave) {
@@ -34,6 +37,22 @@ export class Encounter {
     // Beasts this encounter is holding. Subclasses put their demands here and
     // the base drops the ones the player has already answered.
     this.held = [];
+
+    // The volley cycle.
+    //
+    // Seven of the ten shipped with no way to hurt you at all: left completely
+    // alone for a minute, the Hydra, Remainder, Cipher, Prism, Nought, Twins
+    // and Echo cost nothing, moved nothing toward the planet, and would have
+    // waited for ever. They were puzzle screens with a boss drawn behind them.
+    //
+    // So a boss now fires: a salvo of problems that fall at the planet and do
+    // real damage if they land. While any of it is in the air the core is
+    // sealed and its own problem cannot be answered -- deal with the incoming
+    // first. Clear the salvo and the core opens for a window, and *that* is
+    // when the boss itself is solvable. Fight, breathe, fight.
+    this.beat = 'open';         // 'salvo' | 'open'
+    this.beatT = FIRST_SALVO;   // a moment to read the board before the first
+    this.missiles = [];
   }
 
   // --- what the game asks of every encounter -----------------------------
@@ -114,6 +133,7 @@ export class Encounter {
     // what happened by how many siblings are left standing -- always saw two,
     // never cleared a pair, and regenerated for ever.
     for (const b of solved) this._solved(b);
+    this._volley(dt, api);
     this._fight(dt, api);
   }
 
@@ -126,6 +146,55 @@ export class Encounter {
 
   // One of this encounter's own demands was answered correctly.
   _solved() {}
+
+  // How many problems this boss throws per salvo. Zero for the ones that
+  // already bring their own pressure -- the Bulwark's wall is always closing,
+  // the Kraken's arms launch themselves, the Balance tips onto the dome -- and
+  // stacking a second threat on top of a working one just makes them noisy.
+  static get salvo() { return 0; }
+  get salvoSize() { return this.constructor.salvo; }
+
+  // Is the core answerable right now?
+  get openCore() { return this.beat === 'open'; }
+  // For the readout: 0..1 through the current window.
+  get beatLeft() { return this.beat === 'open' ? Math.max(0, this.beatT) : 0; }
+
+  _volley(dt, api) {
+    if (!this.salvoSize) return;
+    this.missiles = this.missiles.filter((m) => m.alive);
+
+    if (this.beat === 'salvo') {
+      // The core stays shut until the sky is clear. Landing one is not a
+      // stalemate either -- it did its damage on the way through.
+      if (this.missiles.length === 0) {
+        this.beat = 'open';
+        this.beatT = OPEN;
+      }
+    } else {
+      this.beatT -= dt;
+      if (this.beatT <= 0) {
+        this.beat = 'salvo';
+        this._fire(api);
+      }
+    }
+    // Whatever the beat, the held demands agree with it.
+    for (const b of this.held) b.sealed = !this.openCore;
+  }
+
+  // Throw a salvo. The problems come from the curriculum, so a boss needs to
+  // know nothing about tiers or the adaptive plan to shoot at you.
+  _fire(api) {
+    const n = this.salvoSize;
+    for (let i = 0; i < n; i++) {
+      const x = this.x + (i - (n - 1) / 2) * 190 + rand(40, -40);
+      const m = api.curriculum(clamp(x, 140, 1140), this.y + 40);
+      if (!m) break;
+      api.release(m, MISSILE);
+      m.missile = true;
+      this.missiles.push(m);
+    }
+    if (api.audio && api.audio.boss) api.audio.boss();
+  }
 
   // The last demand fell: stop the fight and lay the core open. Nothing else
   // kills a boss -- the core has to be shot, which is what makes the ending an
