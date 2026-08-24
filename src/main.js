@@ -26,6 +26,7 @@ import { touchButtons, touchHitTest, drawTouchButtons, drawRotate } from './ui/t
 import { drawProfiles, profileHitTest, nameButton, drawScores, drawLeaderboard, MAX_ROWS } from './ui/profile.js';
 import { drawStarChart } from './ui/starchart.js';
 import { drawProgress } from './ui/progress.js';
+import { drawMenu, menuItems, menuHitTest } from './ui/menu.js';
 import { dayKey } from './progress.js';
 
 const W = 1280;
@@ -76,6 +77,8 @@ class Game {
     this.board = false;      // the full top-20 screen
     this.sky = false;        // the star chart
     this.report = false;     // the progress page, for a parent
+    this.menu = false;
+    this.menuIndex = 0;
     // Recomputed at each wave boundary rather than per spawn, so a wave is a
     // coherent set rather than drifting under the player mid-wave.
     this.plan = [];
@@ -176,6 +179,15 @@ class Game {
         return;
       }
 
+      if (this.menu) {
+        const items = menuItems(this);
+        if (e.key === 'ArrowUp') this.menuIndex = (this.menuIndex + items.length - 1) % items.length;
+        else if (e.key === 'ArrowDown') this.menuIndex = (this.menuIndex + 1) % items.length;
+        else if (e.key === 'Enter' || e.key === ' ') this._menuAction(items[this.menuIndex].id);
+        else if (e.key === 'Escape' || e.key === 'Tab') this._closeMenu();
+        return;
+      }
+
       // Instructions and the board are reachable from anywhere, and swallow
       // other keys while open.
       if (e.key === 'h' || e.key === 'H') { this.help = !this.help; return; }
@@ -221,6 +233,12 @@ class Game {
       if (e.key === 'r' || e.key === 'R') { setReducedMotion(!theme.reducedMotion); return; }
       if (e.key === 'Tab') { this._setInputMode(this.inputMode === 'type' ? 'choose' : 'type'); return; }
       if (this.paused) { this.paused = false; return; }
+
+      if (e.key === 'Escape') {
+        if (this.input) { this.input = ''; return; }
+        this._openMenu();
+        return;
+      }
 
       if (e.key === ' ') { this._fireBeam(); return; }
 
@@ -270,14 +288,18 @@ class Game {
       if (this.board) { this.board = false; return; }
       if (this.sky) { this.sky = false; return; }
       if (this.report) { this.report = false; return; }
+      if (this.menu) {
+        const hit = menuHitTest(px, py, this, W);
+        // A tap outside the list closes it, so there is always a way out even
+        // if none of the entries is what was wanted.
+        if (hit) this._menuAction(hit); else this._closeMenu();
+        return;
+      }
 
       // On-screen buttons sit above everything else.
       const btn = touchHitTest(px, py, touchButtons(this, W, H));
       if (btn) {
-        if (btn === 'help') this.help = true;
-        else if (btn === 'board') this.board = true;
-        else if (btn === 'sky') this.sky = true;
-        else if (btn === 'report') this.report = true;
+        if (btn === 'menu') this._openMenu();
         else if (btn === 'pause') this.paused = !this.paused;
         else if (btn === 'beam') this._fireBeam();
         return;
@@ -382,12 +404,15 @@ class Game {
     window.addEventListener('popstate', () => {
       // Push the entry straight back, or the next back press exits for real.
       history.pushState({ mathblast: 'shell' }, '');
+      if (this.menu) { this._closeMenu(); return; }
       if (this.help) { this.help = false; return; }
       if (this.board) { this.board = false; return; }
       if (this.sky) { this.sky = false; return; }
       if (this.report) { this.report = false; return; }
       if (this.naming) { this._stopNaming(); return; }
-      if (this.state === 'playing') { this.paused = !this.paused; return; }
+      // Back mid-run opens the way out rather than only pausing: on a phone
+      // this is the gesture a player will reach for to leave.
+      if (this.state === 'playing') { this._openMenu(); return; }
       if (this.state === 'title') { this.state = 'profile'; this.stateTime = 0; }
     });
   }
@@ -704,6 +729,21 @@ class Game {
     return this.tier.dynamic ? paceWave(this.plan, this.wave) : this.wave;
   }
 
+  _openMenu() {
+    if (this.menu) return;
+    this.menu = true;
+    this.menuIndex = 0;
+    // Remember whether the run was already paused, so closing the menu puts it
+    // back the way it was rather than always resuming.
+    this._wasPaused = this.paused;
+    if (this.state === 'playing') this.paused = true;
+  }
+
+  _closeMenu() {
+    this.menu = false;
+    this.paused = this._wasPaused || false;
+  }
+
   _spawn() {
     const x = clamp(rand(W - 160, 160), 120, W - 120);
     const speed = descentRate(this.tier, this._paceWave()) + rand(10);
@@ -904,6 +944,33 @@ class Game {
       if (this.cores <= 0) {
         this._endRun();
       }
+    }
+  }
+
+  // Every way out of the game goes through here, so a run can never be
+  // abandoned without its score being folded in.
+  _menuAction(id) {
+    switch (id) {
+      case 'resume': this._closeMenu(); break;
+      case 'play': this._closeMenu(); this._begin(); break;
+      case 'board': this._closeMenu(); this.board = true; break;
+      case 'sky': this._closeMenu(); this.sky = true; break;
+      case 'report': this._closeMenu(); this.report = true; break;
+      case 'help': this._closeMenu(); this.help = true; break;
+      case 'mute': this.audio.toggleMute(); break;
+      case 'quit':
+        this._closeMenu();
+        if (this.state === 'playing') this._endRun();
+        break;
+      case 'player':
+        this._closeMenu();
+        // You cannot carry on as somebody else, so switching ends the run --
+        // and it ends it properly, with the score recorded.
+        if (this.state === 'playing') this._endRun();
+        this.state = 'profile';
+        this.stateTime = 0;
+        break;
+      default: break;
     }
   }
 
@@ -1123,7 +1190,9 @@ class Game {
     }
     // Instructions replace the title/game-over overlay rather than stacking on
     // top of it -- a 94%-opaque scrim still lets big glowing text read through.
-    if (this.help) {
+    if (this.menu) {
+      drawMenu(this.out, this, W, H, this.time);
+    } else if (this.help) {
       drawHelp(this.out, W, H, this);
     } else if (this.board) {
       drawLeaderboard(this.out, this, W, H);
@@ -1140,7 +1209,9 @@ class Game {
 
     // Overrides everything: there is nothing useful to show sideways.
     if (this.portrait) drawRotate(this.out, W, H, this.time);
-    if (this.paused) {
+    // The menu pauses the run but says so itself. Drawing PAUSED over it puts
+    // a word across the middle of the list and adds a second scrim.
+    if (this.paused && !this.menu) {
       this.out.save();
       this.out.fillStyle = 'rgba(4,6,16,0.7)';
       this.out.fillRect(0, 0, W, H);
@@ -1238,3 +1309,5 @@ function frame(now) {
 requestAnimationFrame(frame);
 
 window.game = game;
+// Exposed for the test suite, which drives the menu by tapping its rows.
+window.__menu = { menuItems };
