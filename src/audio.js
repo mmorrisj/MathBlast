@@ -300,6 +300,84 @@ export class Audio {
     }
   }
 
+  // The Kraken surfacing: a low swell with the drums cut, then everything back
+  // at once. Short, because the fight starts immediately.
+  boss() {
+    if (!this.ready) return;
+    const t = this.ctx.currentTime + 0.02;
+    for (const [mul, gain, dur] of [[0.5, 0.2, 2.4], [1, 0.12, 1.8], [1.5, 0.07, 1.2]]) {
+      const o = this.ctx.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.setValueAtTime(this._chordRoot(0) * mul * 0.5, t);
+      o.frequency.linearRampToValueAtTime(this._chordRoot(0) * mul, t + dur);
+      const lp = this.ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.setValueAtTime(160, t);
+      lp.frequency.linearRampToValueAtTime(1800, t + dur);
+      const vg = this.ctx.createGain();
+      vg.gain.setValueAtTime(0, t);
+      vg.gain.linearRampToValueAtTime(gain, t + dur * 0.6);
+      vg.gain.linearRampToValueAtTime(0, t + dur);
+      o.connect(lp); lp.connect(vg); vg.connect(this.sfxBus);
+      o.start(t); o.stop(t + dur + 0.05);
+    }
+    this._crash(t, this.drumShaper, 1);
+  }
+
+  // The Kraken going down: the shot, the detonation, and the sky ringing
+  // afterwards. Longer than any other cue in the game, because it is the only
+  // moment that has earned the room.
+  krakenDown(x = 640) {
+    if (!this.ready) return;
+    const t = this.ctx.currentTime + 0.01;
+
+    // The shot: a bright descending whistle.
+    const w = this.ctx.createOscillator();
+    w.type = 'sawtooth';
+    w.frequency.setValueAtTime(2400, t);
+    w.frequency.exponentialRampToValueAtTime(180, t + 0.28);
+    const wf = this.ctx.createBiquadFilter();
+    wf.type = 'bandpass';
+    wf.frequency.value = 1800;
+    wf.Q.value = 1.4;
+    const wg = this.ctx.createGain();
+    wg.gain.setValueAtTime(0.22, t);
+    wg.gain.exponentialRampToValueAtTime(0.0001, t + 0.3);
+    w.connect(wf); wf.connect(wg); wg.connect(this._panned(x, 0.4));
+    w.start(t); w.stop(t + 0.32);
+
+    // The detonation: a sub drop under a long filtered roar.
+    const d = t + 0.24;
+    const o = this.ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(150, d);
+    o.frequency.exponentialRampToValueAtTime(28, d + 1.1);
+    const og = this.ctx.createGain();
+    og.gain.setValueAtTime(0.0001, d);
+    og.gain.linearRampToValueAtTime(0.5, d + 0.02);
+    og.gain.exponentialRampToValueAtTime(0.0001, d + 1.4);
+    o.connect(og); og.connect(this.comp);
+    o.start(d); o.stop(d + 1.45);
+    this._noise(d, 1.3, this.verb, 0.4, 'lowpass', 1600);
+    this._noise(d, 0.5, this.sfxBus, 0.3, 'highpass', 900);
+    this._crash(d, this.drumShaper, 1.4);
+
+    // And the chord it resolves to, once the noise has cleared.
+    const tones = [...this._chordTones(0), 12, this._degree(4) + 12];
+    tones.forEach((semi, i) => {
+      const at = d + 0.55 + i * 0.07;
+      const so = this.ctx.createOscillator();
+      so.type = 'triangle';
+      so.frequency.value = this._chordRoot(0) * 2 * semiToRatio(semi);
+      const sg = this.ctx.createGain();
+      sg.gain.setValueAtTime(0.0001, at);
+      sg.gain.linearRampToValueAtTime(0.12, at + 0.02);
+      sg.gain.exponentialRampToValueAtTime(0.0001, at + 1.6);
+      so.connect(sg); sg.connect(this._panned(x, 0.5));
+      so.start(at); so.stop(at + 1.7);
+    });
+  }
+
   // The last core. Everything melodic falls away, a low swell comes up under
   // it, and the kit keeps time on its own until the run ends.
   lastStand() {

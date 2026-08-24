@@ -52,6 +52,32 @@ and `8`. A prime glows red and refuses to split, so the only way to kill it is t
 name it. Nobody is told what a prime is — the rock teaches it by being
 unbreakable.
 
+## The Kraken — every tenth wave
+
+![The Kraken going down](docs/kraken.png)
+
+The boss the game shipped with was a shell holding one equation, 156px across
+— **shorter than an ordinary nine-by-twelve multiplication lattice** — with no
+announcement, no camera change and no music change. It was reported as "I have
+not seen the bosses", which is the correct reading of something that looks
+smaller than the thing beside it.
+
+Wave ten is an encounter instead. The camera **pulls back to 0.74** to open the
+field, a core hangs above the dome, and arms spiral around it holding problems
+drawn from whatever the player is currently working on. Every few seconds an
+arm glows, lets go, and drives at the planet at about 2.6 seconds' flight —
+against eleven to nineteen for a normal descent. The pressure is the clock, so
+**hitstop and slow motion are suppressed for the duration**: the fight should
+not keep stopping to admire itself.
+
+The last arm does not kill it. The core splits open, the turret winds up, and
+one shot finishes it — a white line into the middle of the thing, then a
+detonation that fills the upper half of the sky and rains orbs onto the shield.
+
+The arms are ordinary beasts in `game.beasts`, so targeting, answering,
+scoring, the skill table and the progress ledger all work on them without
+knowing the Kraken exists.
+
 ## The menu
 
 ![The menu, mid-run](docs/menu.png)

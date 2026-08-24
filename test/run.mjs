@@ -1285,6 +1285,67 @@ async function main() {
         stand.calm.t < 0.05 && !stand.calm.stark &&
         stand.grim.t > 0.7 && stand.grim.stark && !stand.restarted);
 
+  // --- the wave-ten encounter ------------------------------------------------
+  //
+  // The boss the game had was 156px across against a 135x180 multiplication
+  // lattice -- smaller on screen than an ordinary beast, with no announcement
+  // and no camera change, which is why it was reported as never seen.
+  const kraken = await state(() => {
+    const g = window.game;
+    g.state = 'title';
+    g._begin();
+    g.wave = 9;
+    g.beasts = [];
+    g._nextWave();
+    const started = { phase: g.wavePhase, has: Boolean(g.kraken), noStop: g.camera.noStop };
+    for (let f = 0; f < 120; f++) g.update(1 / 60);
+    const opened = { zoom: g.kraken ? +g.camera.zoom.toFixed(2) : 1, slowmo: g.camera.slowmo };
+
+    // Arms are ordinary problems: they must accept their own answers, and the
+    // ledger has to see them like anything else.
+    const armsOk = g.beasts.every((b) => b.accepts(b.answerText));
+
+    // Clearing arms has to advance the fight. Keyed on launches rather than on
+    // arms grown, destroying one in orbit only made room for a replacement and
+    // the encounter never ended -- punishing the player for being quick.
+    const before = g.kraken.left;
+    let guard = 0;
+    while (g.kraken && g.kraken.phase === 'fight' && guard++ < 60 * 60) {
+      const t = g.beasts.find((b) => b.alive && !b.locked);
+      if (t) { g.targetBeast = t; g._fire(t.answerText); }
+      g.update(1 / 60);
+    }
+    const cleared = { left: g.kraken ? g.kraken.left : -1, phase: g.kraken ? g.kraken.phase : 'gone' };
+
+    // The finisher must fire once. readyToBlow stays true after the kill and
+    // update() freezes while dying, so an unguarded call re-fired every frame:
+    // the death timer reset, the wave never ended, and the bonus paid sixty
+    // times a second.
+    const scoreBefore = g.score;
+    let blasts = 0;
+    for (let f = 0; f < 60 * 6; f++) {
+      const had = Boolean(g.krakenBlast);
+      g.update(1 / 60);
+      if (!had && g.krakenBlast) blasts++;
+    }
+    return {
+      started, opened, armsOk, before, cleared, blasts,
+      gain: g.score - scoreBefore,
+      ended: g.wavePhase !== 'kraken' && !g.kraken,
+      noStopCleared: g.camera.noStop === false,
+    };
+  });
+  check('wave ten opens the Kraken and pulls the camera back',
+        kraken.started.phase === 'kraken' && kraken.started.has &&
+        kraken.opened.zoom < 0.8 && kraken.opened.slowmo < 0.01);
+  check('its arms are ordinary problems that answer themselves', kraken.armsOk);
+  check('clearing arms advances the fight instead of growing replacements',
+        kraken.before > 0 && kraken.cleared.left === 0 && kraken.cleared.phase !== 'fight');
+  check('the finishing shot fires exactly once',
+        kraken.blasts === 1 && kraken.gain < 20000);
+  check('the encounter ends and hands the wave back',
+        kraken.ended && kraken.noStopCleared);
+
   // --- the progress ledger ----------------------------------------------------
   //
   // The skill table only recorded facts carrying an (a, b) pair -- four of the

@@ -11,6 +11,7 @@ export class Camera {
     this.hitstop = 0;        // remaining real seconds of near-freeze
     this.slowmo = 0;         // 0..1 blend into bullet time
     this.timeScale = 1;
+    this.noStop = false;      // set while a timed encounter is running
   }
 
   // Reduced motion is applied here rather than at every call site, so no effect
@@ -23,6 +24,9 @@ export class Camera {
 
   // A brief near-freeze on impact. ~60-80ms is most of what "satisfying" means.
   stop(seconds) {
+    // Suppressed outright during an encounter that is paced by a clock --
+    // handled here rather than at the dozen call sites, so none can forget.
+    if (this.noStop) return;
     this.hitstop = Math.max(this.hitstop, theme.reducedMotion ? seconds * 0.5 : seconds);
   }
 
