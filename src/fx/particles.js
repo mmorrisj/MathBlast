@@ -41,6 +41,26 @@ export class Particles {
     this.glyph[i] = o.glyph || null;
   }
 
+  // A gravity well. Everything still alive is pulled toward a point, hard
+  // enough to visibly bend its path. Used for the collapse after a supernova
+  // and again, gently, around the remnant as it drifts down -- so the matter
+  // near it curves in rather than merely being drawn to look as if it does.
+  attract(x, y, accel, dt, radius = 900) {
+    const r2 = radius * radius;
+    for (let i = 0; i < this.n; i++) {
+      const dx = x - this.x[i];
+      const dy = y - this.y[i];
+      const d2 = dx * dx + dy * dy;
+      if (d2 > r2) continue;
+      const d = Math.sqrt(d2) || 1;
+      // Falls off with distance, capped near the centre so particles do not
+      // slingshot away at absurd speed once they arrive.
+      const f = (accel * Math.min(1, 260 / d)) * dt;
+      this.vx[i] += (dx / d) * f;
+      this.vy[i] += (dy / d) * f;
+    }
+  }
+
   // Radial burst. `glyphs` scatters digit fragments of the number destroyed --
   // the debris is literally made of the number you just solved.
   burst(x, y, count, opts = {}) {

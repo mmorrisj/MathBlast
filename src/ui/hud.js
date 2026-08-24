@@ -109,6 +109,26 @@ function drawMastered(ctx, g, W, H) {
   ctx.restore();
 }
 
+// A boss wave announces itself. Without this the only difference between wave
+// five and wave four was a slightly larger shape somewhere off the top.
+function drawBossBanner(ctx, g, W, H) {
+  if (!g.bossBanner) return;
+  const k = Math.min(1, g.bossBanner / 0.5) * Math.min(1, (2.6 - g.bossBanner) / 0.3);
+  ctx.save();
+  ctx.globalAlpha = Math.max(0, k);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  // Along the top, in the slot the wave counter would have used. Centre screen
+  // is spoken for: the boss fills it, its equation sits above it, and the
+  // turret is below -- there is no clear band left in the middle.
+  ctx.font = `700 20px ${MONO}`;
+  ctx.fillStyle = '#ffe4f2';
+  ctx.shadowColor = `hsla(${theme.boss},100%,62%,0.95)`;
+  ctx.shadowBlur = 24;
+  ctx.fillText('GUARDIAN  ·  SOLVE IT DOWN', W / 2, 40);
+  ctx.restore();
+}
+
 // Shown across the middle on the last core: the one moment the game raises its
 // voice. Everything else in the danger ramp is continuous.
 function drawLastStand(ctx, g, W, H, t) {
@@ -164,11 +184,13 @@ export function drawHud(ctx, g, W, H) {
   ctx.textAlign = 'center';
   ctx.font = `700 15px ${MONO}`;
   ctx.fillStyle = 'rgba(150,200,235,0.6)';
-  ctx.fillText(`WAVE ${g.wave}`, W / 2, 46);
+  // The boss announcement uses this slot; two labels at the same y is how the
+  // first attempt read.
+  if (!g.bossBanner) ctx.fillText(`WAVE ${g.wave}`, W / 2, 46);
   // Wave announcement. Deliberately a slim band just under the HUD rather than
   // a centred slab: beasts occupy the middle of the screen and a big banner
   // there covers the very problem the player is trying to read.
-  if (g.waveBanner > 0 && g.wavePhase === 'active') {
+  if (g.waveBanner > 0 && g.wavePhase === 'active' && !g.bossBanner) {
     const p = clamp(1 - g.waveBanner / 2.2, 0, 1);
     const a = Math.sin(p * Math.PI);
     const label = `WAVE ${g.wave}   ·   ${theme.bandName}`;
@@ -302,6 +324,7 @@ export function drawHud(ctx, g, W, H) {
   }
 
   drawEntry(ctx, g, W, H);
+  drawBossBanner(ctx, g, W, H);
   drawLastStand(ctx, g, W, H, g.time);
   drawMastered(ctx, g, W, H);
   ctx.restore();

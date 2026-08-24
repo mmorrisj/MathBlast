@@ -16,6 +16,28 @@ export class Orbs {
     this.list = [];
   }
 
+  // What is left when a Kraken collapses: one dense remnant rather than a
+  // scatter. Slow, luminous, marked with the sign, and worth a whole plate --
+  // a firework leaves nothing behind, and this fight has earned a keepsake.
+  spawnInfinity(x, y, targetFor) {
+    const t = targetFor(x);
+    this.list.push({
+      x, y,
+      vx: rand(30, -30), vy: -70,
+      tx: t.x, ty: t.y,
+      t: 0,
+      scatter: 1.5,               // hangs there long enough to be looked at
+      energy: 3.2,                // several plates' worth
+      size: 26,
+      hue: 188,
+      wobble: rand(TAU),
+      trail: [],
+      infinity: true,
+      done: false,
+    });
+    return 1;
+  }
+
   // `power` ~0.4..1.6. Returns the number spawned.
   spawn(x, y, power, targetFor, hue = 172) {
     const n = clamp(Math.round(2 + power * 5), 2, 9);
@@ -114,10 +136,40 @@ export class Orbs {
       const rr = r * 3.6;
       ctx.fillRect(o.x - rr, o.y - rr, rr * 2, rr * 2);
 
-      ctx.fillStyle = `hsla(${o.hue}, 100%, 97%, 0.95)`;
-      ctx.beginPath();
-      ctx.arc(o.x, o.y, r * 0.5, 0, TAU);
-      ctx.fill();
+      if (!o.infinity) {
+        ctx.fillStyle = `hsla(${o.hue}, 100%, 97%, 0.95)`;
+        ctx.beginPath();
+        ctx.arc(o.x, o.y, r * 0.5, 0, TAU);
+        ctx.fill();
+      }
+
+      if (o.infinity) {
+        // A dark eye at the centre, or the sign is white on white. The halo
+        // outside it carries the brightness instead.
+        ctx.save();
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.fillStyle = 'rgba(4,10,26,0.92)';
+        ctx.beginPath();
+        ctx.arc(o.x, o.y, r * 0.78, 0, TAU);
+        ctx.fill();
+        ctx.restore();
+        // A neutron star's worth of light, and the sign it collapsed into.
+        ctx.save();
+        ctx.strokeStyle = `hsla(${o.hue}, 100%, 88%, ${0.5 + Math.sin(o.t * 6) * 0.2})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(o.x, o.y, r * 1.7 + Math.sin(o.t * 4) * 3, 0, TAU);
+        ctx.stroke();
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.fillStyle = 'rgba(255,255,255,0.98)';
+        ctx.shadowColor = `hsla(${o.hue}, 100%, 75%, 0.95)`;
+        ctx.shadowBlur = 16;
+        ctx.font = `700 ${Math.round(r * 1.15)}px "JetBrains Mono", ui-monospace, monospace`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('∞', o.x, o.y + 1);
+        ctx.restore();
+      }
     }
     ctx.restore();
   }

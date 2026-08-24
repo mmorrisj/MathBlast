@@ -61,7 +61,11 @@ export class Kraken {
   get spent() { return this.spawned >= this.total && this.arms.length === 0; }
   get exposed() { return this.phase === 'exposed' || this.phase === 'firing'; }
   // 0..1 while the turret winds up, for the beam the game draws.
-  get charge() { return this.phase === 'firing' ? clamp(this.phaseT / CHARGE, 0, 1) : 0; }
+  // Zero once the shot has landed: the phase stays 'firing' while dying, so
+  // without the liveness check the beam hung there through the whole finale.
+  get charge() {
+    return this.alive && this.phase === 'firing' ? clamp(this.phaseT / CHARGE, 0, 1) : 0;
+  }
   get left() { return this.total - this.spawned + this.arms.length; }
 
   // `attach` is handed a fresh beast from the game's own spawner.
@@ -140,6 +144,10 @@ export class Kraken {
   expose() {
     if (this.phase === 'fight') { this.phase = 'exposed'; this.phaseT = 0; }
   }
+
+  // How long the wind-up lasts, so the surge running the dome and its sound
+  // can be paced against it.
+  get chargeLen() { return CHARGE; }
 
   get readyToBlow() { return this.phase === 'firing' && this.phaseT >= CHARGE; }
 

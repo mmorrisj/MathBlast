@@ -17,7 +17,7 @@ import { Shockwaves } from './fx/shockwave.js';
 import { Orbs } from './fx/orbs.js';
 import { Post } from './render/post.js';
 import { Starfield } from './render/starfield.js';
-import { Shield, CX } from './entities/shield.js';
+import { Shield, CX, SURGE_LAND } from './entities/shield.js';
 import { Projectile, Turret } from './entities/projectile.js';
 import { makeBeast, makeBoss, isBossWave, SplitBeast } from './entities/beasts/index.js';
 import { drawHud, drawTitle, drawGameOver, drawFocus, drawInterlude, drawHelp, choiceHitTest, setChoiceLayout, tierHitTest, chipHitTest } from './ui/hud.js';
@@ -33,6 +33,11 @@ import { dayKey } from './progress.js';
 const W = 1280;
 const H = 720;
 const INTERLUDE = 2.3;
+// The finale runs outward, hangs, then falls back in. Explosion first: a
+// collapse with nothing to collapse reads as a shrug.
+const NOVA_OUT = 1.05;     // the bright half
+const NOVA_HANG = 0.35;    // debris slowing, hanging there
+const NOVA_IN = 0.85;      // and falling back into a point
 
 class Game {
   constructor(canvas) {
@@ -112,6 +117,7 @@ class Game {
   reset() {
     this.shield = new Shield();
     this.turret = new Turret(CX, this.shield.domeY(CX) - 26);
+    this._surging = false;
     this.beasts = [];
     this.shots = [];
     this.particles.clear();
@@ -696,6 +702,7 @@ class Game {
     this.waveMisses = 0;
     this.wavePhase = 'active';
     this.boss = null;
+    this.bossBanner = 0;
     this.kraken = null;
     // Every tenth wave is the Kraken rather than another shell. The camera
     // pulls back to open the field, which is most of what makes it read as an
@@ -711,10 +718,20 @@ class Game {
       this.camera.shake(1.2);
     } else if (isBossWave(this.wave)) {
       this.waveRemaining = 2;
-      this.spawnTimer = 2.2;
-      const b = makeBoss(this.tier, this.wave, CX + rand(200, -200), -140, 26 + this.wave);
+      this.spawnTimer = 2.6;
+      // On screen from the first frame. It used to enter at y = -140 and fall
+      // at 13px/s, so it was invisible for ten seconds and then took another
+      // forty-six to cross -- which is why it was reported as never appearing.
+      // Low enough that the whole 224px shell clears the top edge and the
+      // score readout, rather than entering with its crown already cut off.
+      const b = makeBoss(this.tier, this.wave, CX + rand(140, -140), 230, 26 + this.wave);
       this.beasts.push(b);
       this.boss = b;
+      this.bossBanner = 2.6;
+      // A smaller version of what the Kraken does, because the reason the
+      // Kraken reads as an event is the camera, not the size.
+      this.camera.shake(0.7);
+      this.audio.boss();
     } else {
       this.waveRemaining = waveCount(this.tier, this._paceWave());
       this.spawnTimer = 0.6;
@@ -770,34 +787,40 @@ class Game {
     this.paused = this._wasPaused || false;
   }
 
-  // The finishing shot and what it does to the sky.
+  // The shot sets off a supernova, and a supernova is not the end of the star.
+  // It burns outward, slows, falls back into a point, and leaves a remnant --
+  // which is the thing worth collecting. A plain explosion scatters and is
+  // over; this one leaves something behind.
   _killKraken(k) {
     k.kill();
     this.score += 500 + this.wave * 120;
-    this.krakenBlast = { x: k.x, y: k.y, t: 0 };
+    this.krakenBlast = { x: k.x, y: k.y, t: 0, phase: 'out' };
 
-    // Three stages so it reads as an event and not one puff: a white core
-    // flash, rings pushing out through it, then burning debris falling.
-    this.shockwaves.spawn(k.x, k.y, 3.2, { hue: 48, rings: 5, radius: 560 });
-    this.shockwaves.spawn(k.x, k.y, 2.4, { hue: theme.boss, rings: 3, radius: 400 });
-    this.particles.burst(k.x, k.y, 90, {
-      hue: 50, speed: 260, life: 1.9, size: 9, grav: -20, stretch: 0.9,
+    this.shockwaves.spawn(k.x, k.y, 3.4, { hue: 190, rings: 5, radius: 620 });
+    this.shockwaves.spawn(k.x, k.y, 2.4, { hue: 48, rings: 3, radius: 420 });
+    // Long-lived and low-drag, because all of this has to still be in the air
+    // when the collapse starts pulling it back.
+    this.particles.burst(k.x, k.y, 240, {
+      hue: 194, speed: 760, life: 2.6, size: 6, grav: 0, drag: 1.1, stretch: 1.5,
     });
-    this.particles.burst(k.x, k.y, 200, {
-      hue: 22, speed: 820, life: 1.7, size: 6, grav: 190, stretch: 1.4,
+    this.particles.burst(k.x, k.y, 110, {
+      hue: 44, speed: 420, life: 2.8, size: 8, grav: 0, drag: 0.9, stretch: 0.9,
     });
-    this.particles.burst(k.x, k.y, 70, {
-      hue: theme.boss, speed: 420, life: 2.4, size: 4.5, grav: 240, stretch: 1,
-      glyphs: ['×', '=', '+', '÷', '?'],
+    this.particles.burst(k.x, k.y, 60, {
+      hue: theme.boss, speed: 520, life: 2.9, size: 5, grav: 0, drag: 1,
+      glyphs: ['×', '=', '+', '÷', '∞'],
     });
-    // Orbs worth having: the reward for the whole fight lands on the shield.
-    for (let i = 0; i < 14; i++) {
-      this.orbs.spawn(k.x + rand(180, -180), k.y + rand(90, -90), 1.4,
-                      (x) => this.shield.domePoint(x), theme.orb);
-    }
-    this.camera.shake(2);
+    this.camera.shake(2.2);
     this.camera.punchIn(1.06, 0, 0);
-    this.audio.krakenDown(k.x);
+    this.audio.supernova(k.x);
+  }
+
+  // What is left once the debris has fallen back in.
+  _remnant(b) {
+    this.orbs.spawnInfinity(b.x, b.y, (x) => this.shield.domePoint(x));
+    this.shockwaves.spawn(b.x, b.y, 1.2, { hue: 188, rings: 2, radius: 200 });
+    this.camera.shake(0.8);
+    this.audio.charged();
   }
 
   // One arm: an ordinary problem from the current curriculum, so the Kraken
@@ -1077,8 +1100,24 @@ class Game {
       if (this.beamFx.t > 0.55) this.beamFx = null;
     }
     if (this.krakenBlast) {
-      this.krakenBlast.t += dtReal;
-      if (this.krakenBlast.t > 0.85) this.krakenBlast = null;
+      const b = this.krakenBlast;
+      b.t += dtReal;
+      if (b.phase === 'out' && b.t >= NOVA_OUT) { b.phase = 'hang'; b.t = 0; }
+      else if (b.phase === 'hang' && b.t >= NOVA_HANG) { b.phase = 'in'; b.t = 0; }
+      else if (b.phase === 'in') {
+        // The well opens: what was thrown out is dragged back, harder as it
+        // gets closer to forming.
+        const k = clamp(b.t / NOVA_IN, 0, 1);
+        this.particles.attract(b.x, b.y, 900 + k * 5200, dtReal, 1100);
+        if (b.t >= NOVA_IN) { this._remnant(b); this.krakenBlast = null; }
+      } else if (b.phase === 'hang') {
+        // Hanging: just enough pull to stop it dispersing before the collapse.
+        this.particles.attract(b.x, b.y, 240, dtReal, 1100);
+      }
+    }
+    // The remnant bends what it passes on the way down.
+    for (const o of this.orbs.list) {
+      if (o.infinity) this.particles.attract(o.x, o.y, 1500, dtReal, 300);
     }
     if (this.chainFx.length) {
       for (const c of this.chainFx) c.t += dtReal;
@@ -1103,6 +1142,7 @@ class Game {
     }
 
     this.waveBanner = Math.max(0, this.waveBanner - dtReal);
+    if (this.bossBanner) this.bossBanner = Math.max(0, this.bossBanner - dtReal);
 
     if (this.wavePhase === 'interlude') {
       this.phaseTimer -= dtReal;
@@ -1127,8 +1167,21 @@ class Game {
       // and update() freezes phaseT while dying, so without this the finisher
       // re-fired every frame -- resetting the death timer so the wave never
       // ended, and paying the kill bonus sixty times a second.
+      // The shot is drawn out of the dome before it leaves the muzzle: a
+      // surge runs the arc from both ends into the cannon.
+      if (k.charge > 0 && !this._surging) {
+        this._surging = true;
+        this.audio.surge(k.chargeLen, SURGE_LAND);
+      }
+      this.shield.surgeTo(k.charge);
       if (k.alive && k.readyToBlow) this._killKraken(k);
-      if (!k.alive && k.dieT > 1.4) {
+      // Not until the whole finale has played. The death timer alone expired
+      // mid-collapse, so WAVE CLEAR printed straight over the supernova and
+      // the remnant was collected behind an overlay.
+      const finale = this.krakenBlast || this.orbs.list.some((o) => o.infinity);
+      if (!k.alive && k.dieT > 1.4 && !finale) {
+        this.shield.surgeTo(0);
+        this._surging = false;
         this.kraken = null;
         this.camera.noStop = false;
         this._endWave();
@@ -1204,9 +1257,15 @@ class Game {
     // The Kraken owns the camera for the duration: pulled back to open the
     // field, and no bullet time. The fight's pressure is the clock, and slow
     // motion hands that back every time an arm gets close.
+    // A boss wave pulls the camera back. The fixed 1280x720 frame cannot hold
+    // a boss worth looking at -- at full zoom a 380px shell fights the score
+    // readout for room -- so the field opens instead of the boss shrinking.
     if (this.kraken) {
       this.camera.slowmo = damp(this.camera.slowmo, 0, 9, dtReal);
       this.camera.punchIn(0.74, 0, 46);
+    } else if (this.boss && this.boss.alive) {
+      this.camera.slowmo = damp(this.camera.slowmo, 0, 9, dtReal);
+      this.camera.punchIn(0.8, 0, 40);
     } else {
       const nearMiss = !theme.reducedMotion && maxProgress > 0.86 && this.targetBeast;
       this.camera.slowmo = damp(this.camera.slowmo, nearMiss ? 1 : 0, 7, dtReal);
@@ -1370,12 +1429,16 @@ class Game {
     const c = k.charge;
     const x0 = this.turret.x;
     const y0 = this.turret.y - 18;
+    // Nothing leaves the muzzle until the surge has run the arc and arrived.
+    const fire = clamp((c - SURGE_LAND) / (1 - SURGE_LAND), 0, 1);
+    const gather = clamp(c / SURGE_LAND, 0, 1);
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
-    // The charge gathering at the muzzle before any of it leaves.
-    const gr = 8 + c * 46;
+    // The charge gathering at the muzzle before any of it leaves -- fed by the
+    // dome, so it only really blooms once the surge lands.
+    const gr = 5 + gather * 12 + fire * 44;
     const g = ctx.createRadialGradient(x0, y0, 0, x0, y0, gr);
-    g.addColorStop(0, `rgba(255,255,255,${0.5 + c * 0.5})`);
+    g.addColorStop(0, `rgba(255,255,255,${0.3 + fire * 0.7})`);
     g.addColorStop(1, 'hsla(190,100%,60%,0)');
     ctx.fillStyle = g;
     ctx.beginPath();
@@ -1383,35 +1446,56 @@ class Game {
     ctx.fill();
 
     // A thin sighting line that thickens into the shot.
-    const w = 1 + Math.pow(c, 3) * 40;
-    ctx.strokeStyle = `hsla(190, 100%, ${72 + c * 28}%, ${0.25 + c * 0.75})`;
+    const w = 0.8 + Math.pow(fire, 3) * 40;
+    ctx.strokeStyle = `hsla(190, 100%, ${72 + fire * 28}%, ${0.18 + gather * 0.1 + fire * 0.72})`;
     ctx.lineWidth = w;
     ctx.lineCap = 'round';
     ctx.beginPath();
     ctx.moveTo(x0, y0);
     ctx.lineTo(k.x, k.y);
     ctx.stroke();
-    if (c > 0.6) {
-      ctx.strokeStyle = `rgba(255,255,255,${(c - 0.6) / 0.4})`;
+    if (fire > 0.6) {
+      ctx.strokeStyle = `rgba(255,255,255,${(fire - 0.6) / 0.4})`;
       ctx.lineWidth = w * 0.3;
       ctx.stroke();
     }
     ctx.restore();
   }
 
-  // A white flash over the whole sky, fading fast.
+  // The burn, then the well. Outward it is a white sky going blue at the
+  // edges; inward the surroundings darken and a point gets brighter as
+  // everything falls into it.
   _drawBlast(ctx) {
     const b = this.krakenBlast;
-    const k = 1 - clamp(b.t / 0.85, 0, 1);
-    if (k <= 0) return;
     ctx.save();
-    ctx.globalCompositeOperation = 'lighter';
-    const g = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, 900 * (1 - k * 0.5));
-    g.addColorStop(0, `rgba(255,255,255,${k})`);
-    g.addColorStop(0.25, `hsla(44,100%,72%,${k * 0.8})`);
-    g.addColorStop(1, 'hsla(20,100%,55%,0)');
-    ctx.fillStyle = g;
-    ctx.fillRect(b.x - 900, b.y - 900, 1800, 1800);
+    if (b.phase === 'out') {
+      const k = 1 - clamp(b.t / NOVA_OUT, 0, 1);
+      ctx.globalCompositeOperation = 'lighter';
+      const rr = 1150 * (1 - k * 0.5);
+      const g = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, rr);
+      g.addColorStop(0, `rgba(255,255,255,${k})`);
+      g.addColorStop(0.16, `hsla(190,100%,82%,${k * 0.9})`);
+      g.addColorStop(0.42, `hsla(212,100%,64%,${k * 0.45})`);
+      g.addColorStop(1, 'hsla(232,100%,50%,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(b.x - rr, b.y - rr, rr * 2, rr * 2);
+    } else if (b.phase === 'in') {
+      const k = clamp(b.t / NOVA_IN, 0, 1);
+      ctx.globalCompositeOperation = 'source-over';
+      const d = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, 700);
+      d.addColorStop(0, 'rgba(0,0,0,0)');
+      d.addColorStop(1, `rgba(2,2,10,${k * 0.8})`);
+      ctx.fillStyle = d;
+      ctx.fillRect(b.x - 700, b.y - 700, 1400, 1400);
+
+      ctx.globalCompositeOperation = 'lighter';
+      const r = 230 * (1 - k) + 12;
+      const g = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, r);
+      g.addColorStop(0, `rgba(255,255,255,${0.35 + k * 0.65})`);
+      g.addColorStop(1, 'hsla(196,100%,60%,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(b.x - r, b.y - r, r * 2, r * 2);
+    }
     ctx.restore();
   }
 

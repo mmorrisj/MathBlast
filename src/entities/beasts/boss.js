@@ -16,7 +16,12 @@ export class BossBeast extends Beast {
     this.steps = steps;
     this.stage = 0;
     this.stages = steps.length;
-    this.r = 78;
+    // 78 put the whole shell at 156px -- narrower *and* shorter than an
+    // ordinary nine-by-twelve lattice at 135x180. 112 was still fighting the
+    // top edge and the score readout for room. The answer is not a slightly
+    // bigger boss squeezed into the same frame: the camera pulls back for a
+    // boss wave, and the shell is sized for the room that opens up.
+    this.r = 190;
     this.w = this.r * 2;
     this.h = this.r * 2;
     this.hue = theme.boss;

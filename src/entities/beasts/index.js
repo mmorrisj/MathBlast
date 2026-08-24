@@ -135,5 +135,6 @@ function buildBeast(tier, wave, skill, x, y, speed, plan) {
 }
 
 export function makeBoss(tier, wave, x, y, speed) {
-  return new BossBeast(bossSteps(tier.boss, wave), x, y, speed * tier.speed * 0.55);
+  // 0.55 gave 13px/s on Easy -- 56 seconds to cross, which reads as scenery.
+  return new BossBeast(bossSteps(tier.boss, wave), x, y, speed * tier.speed * 0.78);
 }

@@ -378,6 +378,84 @@ export class Audio {
     });
   }
 
+  // The finisher gathering: two voices starting at the ends of the dome and
+  // sliding to centre as the surge runs the arc, meeting in a bright hit when
+  // it reaches the cannon. `land` is the fraction of `dur` the run takes.
+  surge(dur = 1.15, land = 0.72) {
+    if (!this.ready) return;
+    const t = this.ctx.currentTime + 0.01;
+    const meet = t + dur * land;
+    for (const side of [-1, 1]) {
+      const o = this.ctx.createOscillator();
+      o.type = 'sawtooth';
+      const root = this._chordRoot(0);
+      o.frequency.setValueAtTime(root * 0.75, t);
+      o.frequency.exponentialRampToValueAtTime(root * 3, meet);
+      const lp = this.ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.setValueAtTime(240, t);
+      lp.frequency.exponentialRampToValueAtTime(5200, meet);
+      lp.Q.value = 6;
+      const vg = this.ctx.createGain();
+      vg.gain.setValueAtTime(0.0001, t);
+      vg.gain.linearRampToValueAtTime(0.11, meet - 0.05);
+      vg.gain.exponentialRampToValueAtTime(0.0001, meet + 0.18);
+      o.connect(lp); lp.connect(vg);
+      if (this.ctx.createStereoPanner) {
+        const pan = this.ctx.createStereoPanner();
+        pan.pan.setValueAtTime(side * 0.85, t);
+        pan.pan.linearRampToValueAtTime(0, meet);
+        vg.connect(pan); pan.connect(this.sfxBus);
+      } else {
+        vg.connect(this.sfxBus);
+      }
+      o.start(t); o.stop(meet + 0.25);
+    }
+    // Arrival: the pool of light under the turret.
+    const a = this.ctx.createOscillator();
+    a.type = 'sine';
+    a.frequency.value = this._chordRoot(0) * 6;
+    const ag = this.ctx.createGain();
+    ag.gain.setValueAtTime(0.0001, meet);
+    ag.gain.exponentialRampToValueAtTime(0.16, meet + 0.01);
+    ag.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    a.connect(ag); ag.connect(this._panned(640, 0.5));
+    a.start(meet); a.stop(t + dur + 0.05);
+  }
+
+  // The supernova. A rising inrush cut dead by the detonation, then the room
+  // ringing. The silence in the middle is doing most of the work.
+  supernova(x = 640) {
+    if (!this.ready) return;
+    const t = this.ctx.currentTime + 0.01;
+    // The inrush already happened; this is the burst and its tail.
+    this._noise(t, 1.9, this.verb, 0.5, 'lowpass', 2600);
+    this._noise(t, 0.7, this.sfxBus, 0.34, 'highpass', 1400);
+    const o = this.ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(190, t);
+    o.frequency.exponentialRampToValueAtTime(24, t + 1.5);
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(0.55, t + 0.015);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 1.8);
+    o.connect(g); g.connect(this.comp);
+    o.start(t); o.stop(t + 1.85);
+    this._crash(t, this.drumShaper, 1.5);
+    // A high shimmer left behind: the remnant, still burning.
+    for (const semi of [12, 19, 24, 28]) {
+      const so = this.ctx.createOscillator();
+      so.type = 'sine';
+      so.frequency.value = this._chordRoot(0) * 4 * semiToRatio(semi);
+      const sg = this.ctx.createGain();
+      sg.gain.setValueAtTime(0.0001, t + 0.25);
+      sg.gain.linearRampToValueAtTime(0.05, t + 0.5);
+      sg.gain.exponentialRampToValueAtTime(0.0001, t + 2.6);
+      so.connect(sg); sg.connect(this._panned(x, 0.6));
+      so.start(t + 0.25); so.stop(t + 2.7);
+    }
+  }
+
   // The last core. Everything melodic falls away, a low swell comes up under
   // it, and the kit keeps time on its own until the run ends.
   lastStand() {
