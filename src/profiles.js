@@ -121,16 +121,60 @@ export class Scores {
 
   get best() { return this.list.length ? this.list[0].score : 0; }
 
-  // Returns the 1-based placing, or 0 if the run did not make the table.
-  add({ name, score, wave, accuracy, combo, at, tier }) {
+  // Ranking, and it differs by what kind of run it was.
+  //
+  // An endless run is ranked by score, because how far you got is the whole
+  // question. A fifty-wave run is not: everyone who finishes did the same
+  // fifty waves, so score mostly measures how many beasts happened to spawn.
+  // What separates two victories is the clock. Finishers come first, fastest
+  // first; anyone who died ranks below them all, by score, however high it was
+  // -- not finishing is not a better result than finishing slowly.
+  static order(a, b) {
+    if (a.won !== b.won) return a.won ? -1 : 1;
+    if (a.won && b.won) return a.seconds - b.seconds;
+    return b.score - a.score || b.wave - a.wave;
+  }
+
+  // Returns the 1-based placing within its own mode, or 0 if it did not place.
+  // Placing is per mode: a fifty-wave addition run and an arcade run are not
+  // the same race and should never push each other off a board.
+  add({ name, score, wave, accuracy, combo, at, tier, mode, seconds, won }) {
     if (!score) return 0;
-    const entry = { name, score, wave, accuracy, combo, tier: tier || 'medium', at: at || 0 };
+    const entry = {
+      name, score, wave, accuracy, combo,
+      tier: tier || 'medium',
+      mode: mode || tier || 'medium',
+      seconds: seconds || 0,
+      won: Boolean(won),
+      at: at || 0,
+    };
     this.list.push(entry);
-    this.list.sort((a, b) => b.score - a.score || b.wave - a.wave);
-    this.list = this.list.slice(0, MAX_SCORES);
+    this.list.sort(Scores.order);
+    // Trim per mode, so a busy arcade board cannot evict every practice run.
+    const kept = new Map();
+    this.list = this.list.filter((e) => {
+      const n = (kept.get(e.mode) || 0) + 1;
+      kept.set(e.mode, n);
+      return n <= MAX_SCORES;
+    });
     this.save();
-    const i = this.list.indexOf(entry);
+    const i = this.board(entry.mode).indexOf(entry);
     return i < 0 ? 0 : i + 1;
+  }
+
+  // One mode's table, already ranked. No argument gives everything, ordered
+  // the old way, which is what the all-comers screen wants.
+  board(mode = null) {
+    const rows = mode ? this.list.filter((e) => e.mode === mode) : this.list.slice();
+    return rows.sort(Scores.order);
+  }
+
+  // Which modes actually have runs on them, so the board screen only offers
+  // tabs that lead somewhere.
+  modes() {
+    const seen = [];
+    for (const e of this.list) if (!seen.includes(e.mode)) seen.push(e.mode);
+    return seen;
   }
 
   save() { write(SCORE_KEY, this.list); }

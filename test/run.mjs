@@ -1150,16 +1150,26 @@ async function main() {
     g.menu = false; g.help = false; g.board = false; g.sky = false; g.report = false;
     g.state = 'title';
   });
+  // Positions come from the real layout rather than being copied here: the row
+  // has gained a chip once already, and a duplicated constant just goes stale.
+  const chipXs = await pg.evaluate(async () => {
+    const { TITLE_CHIPS, chipRect } = await import('/src/ui/hud.js');
+    return TITLE_CHIPS.map((c, i) => {
+      const r = chipRect(i, 1280);
+      return { id: c.id, x: r.x + r.w / 2, y: r.y + r.h / 2 };
+    });
+  });
   const chipHits = {};
-  for (const [i, key] of [[0, 'help'], [1, 'board'], [2, 'sky'], [3, 'report']]) {
-    await tap(640 - (4 * 250 + 3 * 16) / 2 + i * 266 + 125, 650);
-    chipHits[key] = await pg.evaluate((k) => ({
+  for (const c of chipXs) {
+    await tap(c.x, c.y);
+    chipHits[c.id] = await pg.evaluate((k) => ({
       open: Boolean(window.game[k]), playing: window.game.state === 'playing',
-    }), key);
-    await pg.evaluate((k) => { window.game[k] = false; }, key);
+    }), c.id);
+    await pg.evaluate((k) => { window.game[k] = false; }, c.id);
   }
   check('every title-screen destination is a button on a touchscreen',
-        ['help', 'board', 'sky', 'report'].every((k) => chipHits[k].open && !chipHits[k].playing));
+        chipXs.every((c) => chipHits[c.id].open && !chipHits[c.id].playing),
+        JSON.stringify(chipHits));
   // And the fallback still works: a tap that is not a chip or a tier plays.
   await tap(640, 200);
   check('tapping elsewhere on the title still starts a run',
@@ -1549,6 +1559,218 @@ async function main() {
   check('the streak survives a day not played yet and breaks on a real gap',
         ledger.yesterdayRun === 3 && ledger.acrossGap === 3 && ledger.stale === 0);
   check('the day log is capped', ledger.kept === 120 && ledger.recentLen === 30);
+
+  // --- arcade and practice ---------------------------------------------------
+  //
+  // Two modes with a finish line, in a game that until now could only be lost.
+  const modes = await state(async () => {
+    const M = await import('/src/modes.js');
+    const { BY_ID } = await import('/src/curriculum.js');
+
+    // The schedule is the curriculum graph, so nothing may arrive before what
+    // it needs. Same-wave gates count as satisfied: add and sub both open on
+    // wave one and sub needs add.
+    let breaks = 0;
+    for (const g of M.GATES) {
+      const open = M.unlockedBy(g.wave);
+      for (const n of BY_ID.get(g.id).needs) if (!open.includes(n)) breaks++;
+    }
+
+    // Every concept is in by the end, and the last wave really is a mix
+    // rather than whatever came in most recently.
+    const last = M.arcadePlan(M.RUN_WAVES);
+    const ids = new Set(last.map((e) => e.id));
+    const top = last[0].share;
+
+    // Practice keeps its own subject dominant while still bringing along the
+    // prerequisites -- fifty waves of nothing but percent is punishment, and
+    // fifty waves that forget to be about percent are not practice.
+    const prac = M.practicePlan('fracop', 30);
+    const own = prac.filter((e) => e.id === 'fracop').reduce((n, e) => n + e.share, 0);
+    const supports = new Set(prac.map((e) => e.id));
+
+    // A thin concept still fills the run: its ladder has to reach the top rung.
+    const endLevel = M.practicePlan('percent', M.RUN_WAVES - 1)[0].level;
+
+    return {
+      breaks, gates: M.GATES.length,
+      covered: ids.size, top,
+      own, supports: [...supports],
+      endLevel,
+      clock: [M.formatClock(0), M.formatClock(95), M.formatClock(3725)].join(' '),
+    };
+  });
+  check('the arcade schedule never asks for a concept before its prerequisites',
+        modes.breaks === 0 && modes.gates === 11, JSON.stringify(modes));
+  check('every concept is in the mix by the last arcade wave',
+        modes.covered === 11 && modes.top < 0.3);
+  check('practice stays about its own subject but brings the prerequisites',
+        modes.own > 0.5 && modes.own < 0.85 &&
+        modes.supports.includes('fraction') && modes.supports.includes('div'));
+  check('a two-level track still reaches its top rung by the end',
+        modes.endLevel === 1);
+  check('the clock reads as a clock', modes.clock === '0:00 1:35 1:02:05');
+
+  // The clock counts time played, not time elapsed. A run left paused on a
+  // desk overnight must not beat one that was actually quick.
+  const clock = await state(() => {
+    const g = window.game;
+    g.state = 'title';
+    g.mode = 'arcade';
+    g._begin();
+    for (let f = 0; f < 120; f++) g.update(1 / 60);
+    const ran = g.runTime;
+    // What the frame loop does while paused: it does not call update at all.
+    const parked = g.runTime;
+    g.state = 'title';
+    for (let f = 0; f < 600; f++) g.update(1 / 60);
+    const afterTitle = g.runTime;
+    return { ran, parked, afterTitle, timed: g.timed };
+  });
+  check('the clock runs while playing and stops everywhere else',
+        clock.timed && clock.ran > 1.8 && clock.ran < 2.2 &&
+        clock.parked === clock.ran && clock.afterTitle === clock.ran,
+        JSON.stringify(clock));
+
+  // Fifty waves is a win, and it is the only way out of the game that is not
+  // dying. Driving fifty real waves takes about an hour of game time, so this
+  // starts at the edge of the cliff.
+  const victory = await state(() => {
+    const g = window.game;
+    g.state = 'title';
+    g.mode = 'arcade';
+    g._begin();
+    g.wave = 50;
+    g.beasts = [];
+    g.boss = null;
+    g.runTime = 640;
+    g.score = 12345;
+    g._endWave();
+    let guard = 0;
+    while (g.state === 'playing' && guard++ < 60 * 30) g.update(1 / 60);
+    g.draw();                       // the screen has to render, not just exist
+    return {
+      state: g.state, won: g.won, wave: g.wave,
+      place: g.lastRun ? g.lastRun.place : -1,
+      seconds: g.lastRun ? Math.round(g.lastRun.seconds) : -1,
+      label: g.lastRun ? g.lastRun.label : '',
+    };
+  });
+  check('fifty waves is a victory, not another wave',
+        victory.state === 'victory' && victory.won && victory.wave === 50,
+        JSON.stringify(victory));
+  // A few seconds past 640: the closing interlude is still part of the run,
+  // and the clock is right to keep counting through it.
+  check('the victory records its clear time and places on the arcade board',
+        victory.seconds >= 640 && victory.seconds < 652 &&
+        victory.place === 1 && victory.label === 'ARCADE',
+        JSON.stringify(victory));
+
+  // Ranking. Among finishers the clock decides; anyone who died ranks below
+  // all of them however high they scored, because not finishing is not a
+  // better result than finishing slowly.
+  const boards = await state(async () => {
+    const { Scores } = await import('/src/profiles.js');
+    const s = new Scores();
+    s.list = [];
+    s.add({ name: 'SLOW', score: 90000, wave: 50, mode: 'arcade', seconds: 1400, won: true });
+    s.add({ name: 'FAST', score: 40000, wave: 50, mode: 'arcade', seconds: 900, won: true });
+    const died = s.add({ name: 'DIED', score: 99999, wave: 44, mode: 'arcade', seconds: 800 });
+    s.add({ name: 'ADDER', score: 5000, wave: 50, mode: 'practice:add', seconds: 600, won: true });
+    return {
+      arcade: s.board('arcade').map((e) => e.name),
+      died,
+      practice: s.board('practice:add').map((e) => e.name),
+      modes: s.modes().sort(),
+    };
+  });
+  check('a faster clear outranks a slower one, and a death outranks neither',
+        boards.arcade.join(',') === 'FAST,SLOW,DIED' && boards.died === 3,
+        JSON.stringify(boards));
+  check('each mode keeps its own table',
+        boards.practice.join(',') === 'ADDER' &&
+        boards.modes.join(',') === 'arcade,practice:add');
+
+  // --- the codex -------------------------------------------------------------
+  //
+  // The page draws the real beasts and encounters, so the thing that can break
+  // it is any entry whose example fails to build or fails to draw. Every one
+  // gets opened and rendered.
+  const codex = await state(async () => {
+    const { ENTRIES } = await import('/src/codex.js');
+    const g = window.game;
+    g.state = 'title';
+    g._openCodex();
+    const bad = [];
+    const noTrick = [];
+    const shortSteps = [];
+    for (let i = 0; i < ENTRIES.length; i++) {
+      g.codexIndex = i;
+      // Reroll a few times: the examples are generated, so a rare shape must
+      // not be the one that throws in front of a child.
+      for (let r = 0; r < 6; r++) {
+        try {
+          g._codexRoll();
+          if (!g.codexShown || !g.codexShown.thing) { bad.push(ENTRIES[i].id + ':build'); break; }
+          if (!g.codexShown.steps.length) shortSteps.push(ENTRIES[i].id);
+          g.draw();
+        } catch (e) { bad.push(ENTRIES[i].id + ':' + e.message); break; }
+      }
+      if (!ENTRIES[i].trick) noTrick.push(ENTRIES[i].id);
+    }
+    // Every entry explains the example actually on screen, so a reroll has to
+    // change the working, not just the picture.
+    g.codexIndex = ENTRIES.findIndex((e) => e.id === 'mult');
+    const seen = new Set();
+    for (let r = 0; r < 12; r++) { g._codexRoll(); seen.add(g.codexShown.steps.join('|')); }
+
+    const open = g.codex;
+    g.codex = false;
+    return { count: ENTRIES.length, bad, noTrick, shortSteps, open, variants: seen.size };
+  });
+  check('every codex entry builds and draws its example',
+        codex.bad.length === 0 && codex.shortSteps.length === 0 && codex.count === 21,
+        JSON.stringify(codex.bad.slice(0, 4)));
+  check('every entry offers a real mental trick', codex.noTrick.length === 0,
+        JSON.stringify(codex.noTrick));
+  check('rerolling gives a new problem and new working', codex.variants > 4);
+
+  // Navigation, and the one key that must not be stolen: x types the
+  // multiplication sign so a factor rock can be answered as a pair.
+  const codexKeys = await state(() => {
+    const g = window.game;
+    g.state = 'title';
+    const press = (key) => window.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+    // Reopening keeps your place, which is what you want when you are flicking
+    // between the page and the game -- so the start point is set here rather
+    // than assumed to be zero.
+    g.codexIndex = 0;
+    press('k');
+    const opened = g.codex;
+    const first = g.codexIndex;
+    press('ArrowRight');
+    const moved = g.codexIndex;
+    press('ArrowLeft'); press('ArrowLeft');
+    const wrapped = g.codexIndex;
+    press('Escape');
+    const closed = !g.codex;
+
+    // Mid-run, x must still reach the answer box.
+    g._begin();
+    g.input = '';
+    press('6'); press('x'); press('8');
+    const typed = g.input;
+    press('k');
+    const openMidRun = g.codex;
+    g.codex = false;
+    g.state = 'title';
+    return { opened, first, moved, wrapped, closed, typed, openMidRun };
+  });
+  check('the codex opens on K, browses, wraps and closes',
+        codexKeys.opened && codexKeys.first === 0 && codexKeys.moved === 1 &&
+        codexKeys.wrapped === 20 && codexKeys.closed, JSON.stringify(codexKeys));
+  check('opening it does not steal the key that types a factor pair',
+        codexKeys.typed === '6×8' && codexKeys.openMidRun, JSON.stringify(codexKeys));
 
   const reportPage = await state(() => {
     const g = window.game;

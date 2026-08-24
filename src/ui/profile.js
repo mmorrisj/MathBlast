@@ -6,6 +6,14 @@
 
 import { roundRect, clamp } from '../util.js';
 import { theme } from '../theme.js';
+import { formatClock, trackById } from '../modes.js';
+
+// 'practice:mult' -> 'TIMES TABLES'; a tier id is already its own label.
+function modeLabel(mode) {
+  if (mode === 'arcade') return 'ARCADE';
+  if (mode && mode.startsWith('practice:')) return trackById(mode.slice(9)).name;
+  return String(mode || '').toUpperCase();
+}
 
 const MONO = '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace';
 
@@ -192,10 +200,12 @@ function scoreRow(ctx, r, rank, x, y, w, hot, showTier) {
   ctx.fillText(`${rank}.`, x - w / 2, y);
   ctx.fillText(r.name, x - w / 2 + 44, y);
   ctx.textAlign = 'right';
-  ctx.fillText(String(r.score), x + w / 2 - gutter, y);
+  // A finished run leads with its clock, because that is what it is ranked on
+  // and what it is competing against. Everyone else leads with score.
+  ctx.fillText(r.won ? formatClock(r.seconds) : String(r.score), x + w / 2 - gutter, y);
   ctx.fillStyle = hot ? 'rgba(255,226,150,0.8)' : 'rgba(150,190,220,0.55)';
   ctx.font = `400 13px ${MONO}`;
-  ctx.fillText(`wave ${r.wave}`, x + w / 2 - (showTier ? 72 : 0), y);
+  ctx.fillText(r.won ? `${r.score}` : `wave ${r.wave}`, x + w / 2 - (showTier ? 72 : 0), y);
   if (showTier) ctx.fillText(r.tier, x + w / 2, y);
 }
 
@@ -234,8 +244,18 @@ export const BOARD_SIZE = BOARD_COLS * BOARD_ROWS;
 // them, so they get their own screen: two columns of ten, which reads as one
 // board rather than a list you have to scroll.
 export function drawLeaderboard(ctx, g, W, H) {
-  const list = g.scores.list.slice(0, BOARD_SIZE);
-  const place = g.lastRun ? g.lastRun.place : 0;
+  // The board is per mode. A fifty-wave addition run and an arcade run are not
+  // the same race, and a timed board is not even sorted the same way -- so
+  // mixing them into one table would rank things that never competed.
+  const modes = g.scores.modes();
+  // Opens on the board for whatever is selected on the title screen, since
+  // that is the race the player is currently in, and only falls back to
+  // whatever exists if they have never played it.
+  const active = modes.includes(g.boardMode) ? g.boardMode
+    : (modes.includes(g.modeKey) ? g.modeKey : (modes[0] || g.modeKey));
+  const list = g.scores.board(active).slice(0, BOARD_SIZE);
+  const timed = list.some((r) => r.won);
+  const place = g.lastRun && g.lastRun.mode === active ? g.lastRun.place : 0;
   ctx.save();
   ctx.fillStyle = 'rgba(4,6,16,0.94)';
   ctx.fillRect(0, 0, W, H);
@@ -249,6 +269,32 @@ export function drawLeaderboard(ctx, g, W, H) {
   ctx.fillText(`TOP ${BOARD_SIZE}`, W / 2, 84);
   ctx.shadowBlur = 0;
 
+  // Which board you are looking at, and what else there is. Modes with no runs
+  // on them are not offered -- an empty tab leads nowhere.
+  if (modes.length) {
+    ctx.font = `700 13px ${MONO}`;
+    const gaps = modes.map((m) => modeLabel(m));
+    const widths = gaps.map((s) => ctx.measureText(s).width + 26);
+    let x = W / 2 - widths.reduce((a, b) => a + b, 0) / 2;
+    for (let i = 0; i < modes.length; i++) {
+      const on = modes[i] === active;
+      ctx.textAlign = 'center';
+      ctx.fillStyle = on ? '#fff2c8' : 'rgba(150,190,220,0.45)';
+      ctx.fillText(gaps[i], x + widths[i] / 2, 116);
+      if (on) {
+        ctx.fillStyle = 'rgba(255,226,150,0.6)';
+        ctx.fillRect(x + 10, 128, widths[i] - 20, 2);
+      }
+      x += widths[i];
+    }
+    if (modes.length > 1) {
+      ctx.textAlign = 'center';
+      ctx.font = `400 11px ${MONO}`;
+      ctx.fillStyle = 'rgba(150,190,220,0.4)';
+      ctx.fillText('◀ ▶ to switch board', W / 2, 146);
+    }
+  }
+
   if (!list.length) {
     ctx.font = `400 18px ${MONO}`;
     ctx.fillStyle = 'rgba(150,190,220,0.55)';
@@ -259,7 +305,7 @@ export function drawLeaderboard(ctx, g, W, H) {
     for (let i = 0; i < list.length; i++) {
       const col = Math.floor(i / BOARD_ROWS);
       const cx = W / 2 + (col - (BOARD_COLS - 1) / 2) * (colW + gap);
-      scoreRow(ctx, list[i], i + 1, cx, 176 + (i % BOARD_ROWS) * 40, colW,
+      scoreRow(ctx, list[i], i + 1, cx, 196 + (i % BOARD_ROWS) * 38, colW,
                place === i + 1, true);
     }
     // Column headings, drawn after the rows so they inherit nothing from them.
@@ -268,11 +314,11 @@ export function drawLeaderboard(ctx, g, W, H) {
     for (let c = 0; c < BOARD_COLS; c++) {
       const cx = W / 2 + (c - (BOARD_COLS - 1) / 2) * (colW + gap);
       ctx.textAlign = 'left';
-      ctx.fillText('PLAYER', cx - colW / 2 + 44, 140);
+      ctx.fillText('PLAYER', cx - colW / 2 + 44, 162);
       ctx.textAlign = 'right';
-      ctx.fillText('SCORE', cx + colW / 2 - 148, 140);
-      ctx.fillText('WAVE', cx + colW / 2 - 72, 140);
-      ctx.fillText('TIER', cx + colW / 2, 140);
+      ctx.fillText(timed ? 'TIME' : 'SCORE', cx + colW / 2 - 148, 162);
+      ctx.fillText(timed ? 'SCORE' : 'WAVE', cx + colW / 2 - 72, 162);
+      ctx.fillText('TIER', cx + colW / 2, 162);
     }
   }
 

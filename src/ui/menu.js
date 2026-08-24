@@ -36,6 +36,9 @@ export function menuItems(g) {
     items.push({ id: 'report', label: 'Progress', hint: 'coverage, for a grown-up' });
   }
   items.push({ id: 'help', label: 'How to play', hint: '' });
+  // Available mid-run too: the moment you want to look something up is the
+  // moment it just beat you.
+  items.push({ id: 'codex', label: 'The codex', hint: 'every challenge, explained' });
   items.push({ id: 'mute', label: g.audio.muted ? 'Sound off' : 'Sound on', hint: 'tap to switch' });
   items.push({ id: 'player', label: 'Change player', hint: playing ? 'ends this run' : '', danger: playing });
   if (playing) items.push({ id: 'quit', label: 'End run', hint: 'keeps your score', danger: true });

@@ -1135,6 +1135,38 @@ export class Audio {
     o.start(t); o.stop(t + 0.34);
   }
 
+  // Fifty waves cleared. The opposite of gameOver in every dimension: the
+  // track lifts away instead of being cut, and the figure climbs rather than
+  // falling. Two octaves of the tonic triad arriving one note at a time, so it
+  // reads as an arrival rather than a stinger.
+  victory() {
+    if (!this.ready) return;
+    const t = this.ctx.currentTime + 0.08;
+    this.silentUntil = t + 9;
+    for (const k in this.layerGain) this.layerGain[k].gain.setTargetAtTime(0, t, 1.1);
+    const climb = [0, 4, 7, 12, 16, 19, 24];
+    climb.forEach((semi, i) => {
+      for (const [type, gain, mul] of [['triangle', 0.19, 1], ['sine', 0.11, 2]]) {
+        const o = this.ctx.createOscillator();
+        o.type = type;
+        o.frequency.value = ROOT * 4 * mul * semiToRatio(semi);
+        const vg = this.ctx.createGain();
+        const at = t + i * 0.115;
+        vg.gain.setValueAtTime(0.0001, at);
+        vg.gain.exponentialRampToValueAtTime(gain, at + 0.012);
+        // The last note is the one that hangs.
+        vg.gain.exponentialRampToValueAtTime(0.0001, at + (i === climb.length - 1 ? 4.2 : 1.4));
+        const send = this.ctx.createGain();
+        send.gain.value = 0.85;
+        o.connect(vg);
+        vg.connect(this.sfxBus);
+        vg.connect(send);
+        send.connect(this.verb);
+        o.start(at); o.stop(at + 4.6);
+      }
+    });
+  }
+
   gameOver() {
     if (!this.ready) return;
     const t = this.ctx.currentTime;
