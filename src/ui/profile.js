@@ -154,9 +154,28 @@ function drawNaming(ctx, g, W, H, t) {
   ctx.fillStyle = ok ? '#eafff4' : 'rgba(150,180,205,0.5)';
   ctx.fillText('START', okBtn.x + okBtn.w / 2, okBtn.y + okBtn.h / 2 + 1);
 
-  ctx.font = `400 14px ${MONO}`;
-  ctx.fillStyle = 'rgba(140,180,215,0.5)';
-  ctx.fillText('ESC to go back', W / 2, H - 56);
+  // A visible way back. On a phone ESC does not exist and a tap outside the
+  // field only refocused it, so name entry was a one-way door.
+  const back = backButton(W, H);
+  ctx.fillStyle = 'rgba(10,18,34,0.7)';
+  roundRect(ctx, back.x, back.y, back.w, back.h, 12);
+  ctx.fill();
+  ctx.lineWidth = 1.3;
+  ctx.strokeStyle = 'rgba(150,190,220,0.35)';
+  ctx.stroke();
+  ctx.font = `700 17px ${MONO}`;
+  ctx.fillStyle = 'rgba(190,220,245,0.85)';
+  ctx.fillText('BACK', back.x + back.w / 2, back.y + back.h / 2 + 1);
+
+  if (!g.touch) {
+    ctx.font = `400 14px ${MONO}`;
+    ctx.fillStyle = 'rgba(140,180,215,0.5)';
+    ctx.fillText('ESC to go back', W / 2, H - 56);
+  }
+}
+
+export function backButton(W, H) {
+  return { x: W / 2 - 250, y: 386, w: 130, h: 56 };
 }
 
 export function nameButton(W, H) {
