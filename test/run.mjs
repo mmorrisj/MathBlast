@@ -1550,6 +1550,137 @@ async function main() {
         ledger.yesterdayRun === 3 && ledger.acrossGap === 3 && ledger.stale === 0);
   check('the day log is capped', ledger.kept === 120 && ledger.recentLen === 30);
 
+  // --- arcade and practice ---------------------------------------------------
+  //
+  // Two modes with a finish line, in a game that until now could only be lost.
+  const modes = await state(async () => {
+    const M = await import('/src/modes.js');
+    const { BY_ID } = await import('/src/curriculum.js');
+
+    // The schedule is the curriculum graph, so nothing may arrive before what
+    // it needs. Same-wave gates count as satisfied: add and sub both open on
+    // wave one and sub needs add.
+    let breaks = 0;
+    for (const g of M.GATES) {
+      const open = M.unlockedBy(g.wave);
+      for (const n of BY_ID.get(g.id).needs) if (!open.includes(n)) breaks++;
+    }
+
+    // Every concept is in by the end, and the last wave really is a mix
+    // rather than whatever came in most recently.
+    const last = M.arcadePlan(M.RUN_WAVES);
+    const ids = new Set(last.map((e) => e.id));
+    const top = last[0].share;
+
+    // Practice keeps its own subject dominant while still bringing along the
+    // prerequisites -- fifty waves of nothing but percent is punishment, and
+    // fifty waves that forget to be about percent are not practice.
+    const prac = M.practicePlan('fracop', 30);
+    const own = prac.filter((e) => e.id === 'fracop').reduce((n, e) => n + e.share, 0);
+    const supports = new Set(prac.map((e) => e.id));
+
+    // A thin concept still fills the run: its ladder has to reach the top rung.
+    const endLevel = M.practicePlan('percent', M.RUN_WAVES - 1)[0].level;
+
+    return {
+      breaks, gates: M.GATES.length,
+      covered: ids.size, top,
+      own, supports: [...supports],
+      endLevel,
+      clock: [M.formatClock(0), M.formatClock(95), M.formatClock(3725)].join(' '),
+    };
+  });
+  check('the arcade schedule never asks for a concept before its prerequisites',
+        modes.breaks === 0 && modes.gates === 11, JSON.stringify(modes));
+  check('every concept is in the mix by the last arcade wave',
+        modes.covered === 11 && modes.top < 0.3);
+  check('practice stays about its own subject but brings the prerequisites',
+        modes.own > 0.5 && modes.own < 0.85 &&
+        modes.supports.includes('fraction') && modes.supports.includes('div'));
+  check('a two-level track still reaches its top rung by the end',
+        modes.endLevel === 1);
+  check('the clock reads as a clock', modes.clock === '0:00 1:35 1:02:05');
+
+  // The clock counts time played, not time elapsed. A run left paused on a
+  // desk overnight must not beat one that was actually quick.
+  const clock = await state(() => {
+    const g = window.game;
+    g.state = 'title';
+    g.mode = 'arcade';
+    g._begin();
+    for (let f = 0; f < 120; f++) g.update(1 / 60);
+    const ran = g.runTime;
+    // What the frame loop does while paused: it does not call update at all.
+    const parked = g.runTime;
+    g.state = 'title';
+    for (let f = 0; f < 600; f++) g.update(1 / 60);
+    const afterTitle = g.runTime;
+    return { ran, parked, afterTitle, timed: g.timed };
+  });
+  check('the clock runs while playing and stops everywhere else',
+        clock.timed && clock.ran > 1.8 && clock.ran < 2.2 &&
+        clock.parked === clock.ran && clock.afterTitle === clock.ran,
+        JSON.stringify(clock));
+
+  // Fifty waves is a win, and it is the only way out of the game that is not
+  // dying. Driving fifty real waves takes about an hour of game time, so this
+  // starts at the edge of the cliff.
+  const victory = await state(() => {
+    const g = window.game;
+    g.state = 'title';
+    g.mode = 'arcade';
+    g._begin();
+    g.wave = 50;
+    g.beasts = [];
+    g.boss = null;
+    g.runTime = 640;
+    g.score = 12345;
+    g._endWave();
+    let guard = 0;
+    while (g.state === 'playing' && guard++ < 60 * 30) g.update(1 / 60);
+    g.draw();                       // the screen has to render, not just exist
+    return {
+      state: g.state, won: g.won, wave: g.wave,
+      place: g.lastRun ? g.lastRun.place : -1,
+      seconds: g.lastRun ? Math.round(g.lastRun.seconds) : -1,
+      label: g.lastRun ? g.lastRun.label : '',
+    };
+  });
+  check('fifty waves is a victory, not another wave',
+        victory.state === 'victory' && victory.won && victory.wave === 50,
+        JSON.stringify(victory));
+  // A few seconds past 640: the closing interlude is still part of the run,
+  // and the clock is right to keep counting through it.
+  check('the victory records its clear time and places on the arcade board',
+        victory.seconds >= 640 && victory.seconds < 652 &&
+        victory.place === 1 && victory.label === 'ARCADE',
+        JSON.stringify(victory));
+
+  // Ranking. Among finishers the clock decides; anyone who died ranks below
+  // all of them however high they scored, because not finishing is not a
+  // better result than finishing slowly.
+  const boards = await state(async () => {
+    const { Scores } = await import('/src/profiles.js');
+    const s = new Scores();
+    s.list = [];
+    s.add({ name: 'SLOW', score: 90000, wave: 50, mode: 'arcade', seconds: 1400, won: true });
+    s.add({ name: 'FAST', score: 40000, wave: 50, mode: 'arcade', seconds: 900, won: true });
+    const died = s.add({ name: 'DIED', score: 99999, wave: 44, mode: 'arcade', seconds: 800 });
+    s.add({ name: 'ADDER', score: 5000, wave: 50, mode: 'practice:add', seconds: 600, won: true });
+    return {
+      arcade: s.board('arcade').map((e) => e.name),
+      died,
+      practice: s.board('practice:add').map((e) => e.name),
+      modes: s.modes().sort(),
+    };
+  });
+  check('a faster clear outranks a slower one, and a death outranks neither',
+        boards.arcade.join(',') === 'FAST,SLOW,DIED' && boards.died === 3,
+        JSON.stringify(boards));
+  check('each mode keeps its own table',
+        boards.practice.join(',') === 'ADDER' &&
+        boards.modes.join(',') === 'arcade,practice:add');
+
   const reportPage = await state(() => {
     const g = window.game;
     g.report = true;

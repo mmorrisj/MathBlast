@@ -11,6 +11,10 @@ import { Profiles, Scores, cleanName, MAX_NAME } from './profiles.js';
 import { Progress } from './progress.js';
 import { TIERS, DEFAULT_TIER, tierById, descentRate, waveCount } from './difficulty.js';
 import { plan as planFor, pickPlan, paceWave } from './adaptive.js';
+import {
+  RUN_WAVES, TRACKS, PICKER, trackById, arcadePlan, practicePlan, unlockedAt,
+  ARCADE_TIER, PRACTICE_TIER, bossKind,
+} from './modes.js';
 import { Camera } from './fx/camera.js';
 import { Particles } from './fx/particles.js';
 import { Shockwaves } from './fx/shockwave.js';
@@ -21,7 +25,7 @@ import { Shield, CX, SURGE_LAND } from './entities/shield.js';
 import { Projectile, Turret } from './entities/projectile.js';
 import { makeBeast, SplitBeast } from './entities/beasts/index.js';
 import { bossSteps } from './entities/beasts/boss.js';
-import { drawHud, drawTitle, drawGameOver, drawFocus, drawInterlude, drawHelp, choiceHitTest, setChoiceLayout, tierHitTest, chipHitTest } from './ui/hud.js';
+import { drawHud, drawTitle, drawGameOver, drawVictory, drawFocus, drawInterlude, drawHelp, choiceHitTest, setChoiceLayout, tierHitTest, modeHitTest, trackHitTest, chipHitTest } from './ui/hud.js';
 import { Quality } from './quality.js';
 import { touchButtons, touchHitTest, drawTouchButtons, drawRotate } from './ui/touch.js';
 import { drawProfiles, profileHitTest, nameButton, backButton, drawScores, drawLeaderboard, MAX_ROWS } from './ui/profile.js';
@@ -69,6 +73,10 @@ class Game {
     this.profileIndex = 0;
     this.tierIndex = Math.max(0, TIERS.findIndex(
       (x) => x.id === (this.profiles.active?.tier || DEFAULT_TIER)));
+    // 'tier' (endless, pick a difficulty) | 'arcade' | 'practice'.
+    this.mode = this.profiles.active?.mode || 'tier';
+    this.trackId = this.profiles.active?.track || TRACKS[0].id;
+    this.trackIndex = Math.max(0, TRACKS.findIndex((t) => t.id === this.trackId));
     this.naming = false;
     this.nameDraft = '';
     this.nameError = '';
@@ -82,6 +90,7 @@ class Game {
     this.paused = false;
     this.help = false;
     this.board = false;      // the full top-20 screen
+    this.boardMode = null;   // which mode's table it is showing
     this.sky = false;        // the star chart
     this.report = false;     // the progress page, for a parent
     this.menu = false;
@@ -113,7 +122,35 @@ class Game {
     document.addEventListener('visibilitychange', () => { if (document.hidden) this.paused = true; });
   }
 
-  get tier() { return TIERS[this.tierIndex] || tierById(DEFAULT_TIER); }
+  // The tier drives descent speed, wave size and the ranges the generators draw
+  // from. Arcade and Practice bring their own rather than borrowing one of the
+  // three: Arcade has to open gently enough for wave-one addition and finish
+  // hard enough to be the ultimate challenge, which no single tier does.
+  get tier() {
+    if (this.mode === 'arcade') return ARCADE_TIER;
+    if (this.mode === 'practice') return PRACTICE_TIER;
+    return TIERS[this.tierIndex] || tierById(DEFAULT_TIER);
+  }
+
+  // Fifty waves and a finish line, versus endless. Only a run with an ending
+  // can be won, and only a won run has a clear time worth ranking.
+  get timed() { return this.mode === 'arcade' || this.mode === 'practice'; }
+  get finalWave() { return RUN_WAVES; }
+
+  // What this run is called on a board and a victory screen.
+  get modeLabel() {
+    if (this.mode === 'arcade') return 'ARCADE';
+    if (this.mode === 'practice') return trackById(this.trackId).name;
+    return this.tier.name;
+  }
+  // The key a board is filed under: every practice track gets its own, since a
+  // fifty-wave addition run and a fifty-wave fractions run are not the same
+  // race.
+  get modeKey() {
+    if (this.mode === 'arcade') return 'arcade';
+    if (this.mode === 'practice') return `practice:${this.trackId}`;
+    return this.tier.id;
+  }
 
   reset() {
     this.shield = new Shield();
@@ -145,6 +182,13 @@ class Game {
     this.camera.noStop = false;
     this.phaseTimer = 0;
     this.waveMisses = 0;
+    // Seconds actually spent playing. Paused, in a menu, on the title screen or
+    // with the tab hidden does not count -- otherwise the board would rank
+    // whoever left the tab open the least, not whoever was quickest.
+    this.runTime = 0;
+    this.won = false;
+    this.unlocks = [];
+    this.unlockBanner = 0;
     this.lastPerfect = false;
     this.lastStandT = 0;          // 0..1 ramp into the one-core state
     this.masteredFx = null;       // { text, t } when a fact just crossed
@@ -208,6 +252,17 @@ class Game {
       }
       if (e.key === 't' || e.key === 'T') { this.board = !this.board; return; }
       if (this.board) {
+        // Each mode keeps its own table, so the board has to be steerable.
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+          const modes = this.scores.modes();
+          if (modes.length > 1) {
+            const i = Math.max(0, modes.indexOf(this.boardMode));
+            const step = e.key === 'ArrowRight' ? 1 : -1;
+            this.boardMode = modes[(((i + step) % modes.length) + modes.length) % modes.length];
+            this._tick();
+          }
+          return;
+        }
         if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') this.board = false;
         return;
       }
@@ -223,15 +278,19 @@ class Game {
       }
 
       if (this.state === 'title') {
-        if (e.key === 'ArrowLeft') this._setTier(this.tierIndex - 1);
-        else if (e.key === 'ArrowRight') this._setTier(this.tierIndex + 1);
+        // Up and down move between modes; left and right move within whatever
+        // that mode still has to choose.
+        if (e.key === 'ArrowUp') this._setMode(-1);
+        else if (e.key === 'ArrowDown') this._setMode(1);
+        else if (e.key === 'ArrowLeft') this._setChoice(-1);
+        else if (e.key === 'ArrowRight') this._setChoice(1);
         else if (e.key === 'Enter' || e.key === ' ') this._begin();
         else if (e.key === 'c' || e.key === 'C') setColorSafe(!theme.colorSafe);
         else if (e.key === 'r' || e.key === 'R') setReducedMotion(!theme.reducedMotion);
         else if (e.key === 'Escape') { this.state = 'profile'; this.stateTime = 0; }
         return;
       }
-      if (this.state === 'gameover') {
+      if (this.state === 'gameover' || this.state === 'victory') {
         if (e.key === 'Enter') this._begin();
         else if (e.key === 'Escape') { this.state = 'profile'; this.stateTime = 0; }
         return;
@@ -331,8 +390,17 @@ class Game {
         return;
       }
       if (this.state === 'title') {
-        const tierHit = tierHitTest(px, py, W);
-        if (tierHit >= 0) { this._setTier(tierHit); return; }
+        // Mode first: its row sits above the others and a tap there must not
+        // fall through to starting a run.
+        const modeHit = modeHitTest(px, py, W);
+        if (modeHit >= 0) { this._pickMode(PICKER[modeHit].id); return; }
+        if (this.mode === 'tier') {
+          const tierHit = tierHitTest(px, py, W);
+          if (tierHit >= 0) { this._setTier(tierHit); return; }
+        } else if (this.mode === 'practice') {
+          const trackHit = trackHitTest(px, py, W);
+          if (trackHit >= 0) { this._setTrack(trackHit); return; }
+        }
         if (this.touch) {
           // Before the tap-anywhere-to-play fallback, or a chip would start a
           // run rather than open what it says.
@@ -342,7 +410,7 @@ class Game {
         this._begin();
         return;
       }
-      if (this.state === 'gameover') { this._begin(); return; }
+      if (this.state === 'gameover' || this.state === 'victory') { this._begin(); return; }
       if (this.paused) { this.paused = false; return; }
 
       if (this.inputMode === 'choose') {
@@ -495,8 +563,46 @@ class Game {
     this.tierIndex = next;
     const p = this.profiles.active;
     if (p) { p.tier = TIERS[next].id; this.profiles.save(); }
-    this.audio.plate ? this.audio.plate() : this.audio.fire(640);
+    this._tick();
   }
+
+  // Mode and track are remembered per player too: what someone is working on
+  // is as much a part of where they are as which tier they picked.
+  _pickMode(id) {
+    if (this.mode === id) return;
+    this.mode = id;
+    // The plan has to follow the mode, or the title screen keeps showing the
+    // last mode's mix under the new mode's name.
+    this.plan = this._planFor(Math.max(1, this.wave));
+    const p = this.profiles.active;
+    if (p) { p.mode = id; this.profiles.save(); }
+    this._tick();
+  }
+
+  _setTrack(i) {
+    const n = TRACKS.length;
+    const next = ((i % n) + n) % n;
+    if (next === this.trackIndex) return;
+    this.trackIndex = next;
+    this.trackId = TRACKS[next].id;
+    const p = this.profiles.active;
+    if (p) { p.track = this.trackId; this.profiles.save(); }
+    this._tick();
+  }
+
+  _setMode(step) {
+    const n = PICKER.length;
+    const i = Math.max(0, PICKER.findIndex((m) => m.id === this.mode));
+    this._pickMode(PICKER[(((i + step) % n) + n) % n].id);
+  }
+
+  // Left and right mean whatever the current mode still has to choose.
+  _setChoice(step) {
+    if (this.mode === 'tier') this._setTier(this.tierIndex + step);
+    else if (this.mode === 'practice') this._setTrack(this.trackIndex + step);
+  }
+
+  _tick() { this.audio.plate ? this.audio.plate() : this.audio.fire(640); }
 
   _chooseProfile(i) {
     const shown = Math.min(this.profiles.list.length, MAX_ROWS);
@@ -699,8 +805,16 @@ class Game {
   // --- waves -------------------------------------------------------------
 
   _nextWave() {
+    // Past the last wave of a timed run there is no next wave -- there is a
+    // win. This is the only way out of the game that is not dying.
+    if (this.timed && this.wave >= this.finalWave) { this._win(); return; }
     this.wave++;
-    if (this.tier.dynamic) this.plan = planFor(this.progress, dayKey());
+    this.plan = this._planFor(this.wave);
+    // What this wave brings in that the last one did not. Arcade gates a new
+    // concept behind each boss, and an unannounced one is just an unexplained
+    // difficulty spike.
+    this.unlocks = this.mode === 'arcade' ? unlockedAt(this.wave) : [];
+    if (this.unlocks.length && this.wave > 1) this.unlockBanner = 3.4;
     setThemeWave(this.wave);
     this.audio.setWave(this.wave);
     this.waveBanner = 2.2;
@@ -761,8 +875,19 @@ class Game {
 
   // Dynamic has no ramp of its own: it paces off the difficulty of the
   // material currently in rotation rather than off the wave number alone.
+  // Which weighted list of {id, level} this wave spawns from. Three modes, one
+  // shape -- so nothing downstream of here knows which mode is running.
+  _planFor(wave) {
+    if (this.mode === 'arcade') return arcadePlan(wave);
+    if (this.mode === 'practice') return practicePlan(this.trackId, wave);
+    if (this.tier.dynamic) return planFor(this.progress, dayKey());
+    return [];
+  }
+
+  // A planned run borrows the wave number its material corresponds to, so a
+  // wave of two-digit addition does not fall at the speed of single digits.
   _paceWave() {
-    return this.tier.dynamic ? paceWave(this.plan, this.wave) : this.wave;
+    return this.plan.length ? paceWave(this.plan, this.wave) : this.wave;
   }
 
   _openMenu() {
@@ -790,7 +915,7 @@ class Game {
       // arms and the Echo's fallback both come from here, which is why
       // neither has to know anything about tiers or the adaptive plan.
       curriculum: (x, y) => {
-        const pick = this.tier.dynamic ? pickPlan(this.plan) : null;
+        const pick = this.plan.length ? pickPlan(this.plan) : null;
         const b = makeBeast(this.tier, this.wave, this.skill, x, y, 0, pick);
         b.attached = true;
         b.speed = 0;
@@ -827,13 +952,13 @@ class Game {
       // A leftover, coming at you. The Remainder makes these out of your own
       // bad guesses, which is the whole lesson of the encounter.
       fragment: (x) => {
-        const pick = this.tier.dynamic ? pickPlan(this.plan) : null;
+        const pick = this.plan.length ? pickPlan(this.plan) : null;
         const speed = descentRate(this.tier, this._paceWave()) * 1.5;
         this.beasts.push(
           makeBeast(this.tier, this.wave, this.skill, clamp(x, 120, W - 120), -70, speed, pick));
       },
       // The tier's own equation curriculum, for the Balance.
-      equation: () => bossSteps(this.tier.boss, this.wave),
+      equation: () => bossSteps(bossKind(this.tier, this.wave), this.wave),
     };
   }
 
@@ -881,7 +1006,7 @@ class Game {
   _spawn() {
     const x = clamp(rand(W - 160, 160), 120, W - 120);
     const speed = descentRate(this.tier, this._paceWave()) + rand(10);
-    const pick = this.tier.dynamic ? pickPlan(this.plan) : null;
+    const pick = this.plan.length ? pickPlan(this.plan) : null;
     this.beasts.push(
       makeBeast(this.tier, this.wave, this.skill, x, -80 - rand(120), speed, pick));
     this.waveRemaining--;
@@ -1114,26 +1239,49 @@ class Game {
     }
   }
 
+  // Fifty waves, all ten bosses, still alive. The only ending in the game that
+  // is not a death, and the whole reason the timed modes exist.
+  _win() {
+    this.won = true;
+    this.beasts = [];
+    this.boss = null;
+    this.bossBlast = null;
+    this.camera.noStop = false;
+    this.camera.release();
+    this.audio.victory();
+    this._record('victory');
+  }
+
   // Fold the finished run into the player's profile and the score table.
   _endRun() {
     this.boss = null;
     this.bossBlast = null;
     this.camera.noStop = false;
-    this.state = 'gameover';
+    this.audio.gameOver();
+    this._record('gameover');
+  }
+
+  _record(state) {
+    this.state = state;
     this._releaseWake();
     this.stateTime = 0;
-    this.audio.gameOver();
     const name = this.profiles.active ? this.profiles.active.name : 'PLAYER';
     const accuracy = this.attempts ? Math.round((this.solved / this.attempts) * 100) : 100;
     const beat = this.profiles.record({
       score: this.score, wave: this.wave, combo: this.bestCombo,
       solved: this.solved, attempts: this.attempts,
     });
+    // The clock only means something on a run that had a finish line, and only
+    // a finished one is ranked by it.
     const place = this.scores.add({
       name, score: this.score, wave: this.wave, accuracy, combo: this.bestCombo,
-      tier: this.tier.id,
+      tier: this.tier.id, mode: this.modeKey, seconds: this.timed ? this.runTime : 0,
+      won: this.won,
     });
-    this.lastRun = { place, beat, name, accuracy };
+    this.lastRun = {
+      place, beat, name, accuracy, won: this.won,
+      seconds: this.runTime, mode: this.modeKey, label: this.modeLabel,
+    };
   }
 
   // --- update ------------------------------------------------------------
@@ -1192,8 +1340,15 @@ class Game {
       return;
     }
 
+    // The clock. This line is only reached while the run is genuinely live:
+    // update() is not called at all when paused or reading the instructions,
+    // and everything above returns early on the title, profile, game-over and
+    // victory screens. So the time on the board is time spent playing.
+    this.runTime += dtReal;
+
     this.waveBanner = Math.max(0, this.waveBanner - dtReal);
     if (this.bossBanner) this.bossBanner = Math.max(0, this.bossBanner - dtReal);
+    if (this.unlockBanner) this.unlockBanner = Math.max(0, this.unlockBanner - dtReal);
 
     if (this.wavePhase === 'interlude') {
       this.phaseTimer -= dtReal;
@@ -1420,6 +1575,7 @@ class Game {
     } else {
       if (this.state === 'title') drawTitle(this.out, W, H, this.time, this);
       if (this.state === 'gameover') drawGameOver(this.out, this, W, H, this.stateTime);
+      if (this.state === 'victory') drawVictory(this.out, this, W, H, this.stateTime);
     }
 
     // Overrides everything: there is nothing useful to show sideways.

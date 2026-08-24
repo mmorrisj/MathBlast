@@ -7,6 +7,7 @@ import { theme, bandNameFor } from '../theme.js';
 import { drawScores } from './profile.js';
 import { TIERS } from '../difficulty.js';
 import { planLabel } from '../adaptive.js';
+import { PICKER, TRACKS, RUN_WAVES, formatClock } from '../modes.js';
 
 const MONO = '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace';
 
@@ -85,6 +86,52 @@ export function tierHitTest(px, py, W) {
   return -1;
 }
 
+// The mode row, above the difficulty row. Campaign keeps the tiers underneath
+// it; Practice swaps them for the track grid; Arcade needs no second choice.
+const MODE_W = 196;
+const MODE_H = 44;
+const MODE_Y = 384;
+
+export function modeRect(i, W) {
+  const total = PICKER.length * MODE_W + (PICKER.length - 1) * TIER_GAP;
+  return { x: W / 2 - total / 2 + i * (MODE_W + TIER_GAP), y: MODE_Y, w: MODE_W, h: MODE_H };
+}
+
+export function modeHitTest(px, py, W) {
+  for (let i = 0; i < PICKER.length; i++) {
+    const r = modeRect(i, W);
+    if (px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h) return i;
+  }
+  return -1;
+}
+
+// Nine tracks in two rows, because nine across at a readable size does not fit
+// and abbreviating them to "F+F" helps nobody who is nine.
+const TRACK_W = 214;
+const TRACK_H = 40;
+const TRACK_Y = 452;
+const TRACK_COLS = 5;
+
+export function trackRect(i, W) {
+  const row = Math.floor(i / TRACK_COLS);
+  const cols = Math.min(TRACK_COLS, TRACKS.length - row * TRACK_COLS);
+  const total = cols * TRACK_W + (cols - 1) * 8;
+  const col = i - row * TRACK_COLS;
+  return {
+    x: W / 2 - total / 2 + col * (TRACK_W + 8),
+    y: TRACK_Y + row * (TRACK_H + 8),
+    w: TRACK_W, h: TRACK_H,
+  };
+}
+
+export function trackHitTest(px, py, W) {
+  for (let i = 0; i < TRACKS.length; i++) {
+    const r = trackRect(i, W);
+    if (px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h) return i;
+  }
+  return -1;
+}
+
 let topScrim = null;
 let bottomScrim = null;
 let bottomScrimTop = -1;
@@ -157,6 +204,36 @@ function drawBossPips(ctx, g, W) {
   ctx.restore();
 }
 
+// Arcade gates a new concept behind every boss. Saying so is the difference
+// between "something new arrived" and "the game suddenly got harder" -- and
+// the unlock is the reward for the boss, so it should be legible as one.
+const UNLOCK_NAMES = {
+  add: 'ADDING', sub: 'TAKING AWAY', mult: 'TIMES TABLES', div: 'SHARING',
+  factor: 'FACTORS', inverse: 'MISSING NUMBERS', fraction: 'FRACTIONS',
+  power: 'POWERS', percent: 'PERCENTS', fracop: 'FRACTION SUMS',
+  integer: 'NEGATIVE NUMBERS',
+};
+
+function drawUnlock(ctx, g, W) {
+  if (!g.unlockBanner || !g.unlocks || !g.unlocks.length) return;
+  const p = clamp(1 - g.unlockBanner / 3.4, 0, 1);
+  const a = Math.sin(p * Math.PI);
+  const names = g.unlocks.map((id) => UNLOCK_NAMES[id] || id.toUpperCase()).join('  ·  ');
+  ctx.save();
+  ctx.globalAlpha = a;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `700 13px ${MONO}`;
+  ctx.fillStyle = `hsla(${theme.friendly},90%,72%,0.9)`;
+  ctx.fillText('NEW THIS WAVE', W / 2, 132);
+  ctx.font = `700 27px ${MONO}`;
+  ctx.fillStyle = '#fff3d4';
+  ctx.shadowColor = `hsla(48,100%,64%,0.95)`;
+  ctx.shadowBlur = 22;
+  ctx.fillText(names, W / 2, 160);
+  ctx.restore();
+}
+
 // Shown across the middle on the last core: the one moment the game raises its
 // voice. Everything else in the danger ramp is continuous.
 function drawLastStand(ctx, g, W, H, t) {
@@ -214,7 +291,20 @@ export function drawHud(ctx, g, W, H) {
   ctx.fillStyle = 'rgba(150,200,235,0.6)';
   // The boss announcement uses this slot; two labels at the same y is how the
   // first attempt read.
-  if (!g.bossBanner) ctx.fillText(`WAVE ${g.wave}`, W / 2, 46);
+  // A run with a finish line says how far along it is, because "wave 38" means
+  // something quite different when there are fifty of them.
+  if (!g.bossBanner) {
+    ctx.fillText(g.timed ? `WAVE ${g.wave} / ${RUN_WAVES}` : `WAVE ${g.wave}`, W / 2, 46);
+  }
+
+  // The clock, under the wave counter. The right-hand column is already cores
+  // over shield coverage, and the left is the score -- centre is the only band
+  // with room, and it keeps the two facts about a timed run together.
+  if (g.timed && !g.bossBanner) {
+    ctx.font = `700 26px ${MONO}`;
+    ctx.fillStyle = 'rgba(232,244,255,0.92)';
+    ctx.fillText(formatClock(g.runTime), W / 2, 78);
+  }
   // Wave announcement. Deliberately a slim band just under the HUD rather than
   // a centred slab: beasts occupy the middle of the screen and a big banner
   // there covers the very problem the player is trying to read.
@@ -354,6 +444,7 @@ export function drawHud(ctx, g, W, H) {
   drawEntry(ctx, g, W, H);
   drawBossBanner(ctx, g, W, H);
   drawBossPips(ctx, g, W);
+  drawUnlock(ctx, g, W);
   drawLastStand(ctx, g, W, H, g.time);
   drawMastered(ctx, g, W, H);
   ctx.restore();
@@ -576,15 +667,11 @@ export function drawTitle(ctx, W, H, t, g) {
                  W / 2, 226);
   }
 
-  // Difficulty. Each tier is a different curriculum, so it is chosen before the
-  // run rather than buried in an options screen.
+  // Mode, then whatever that mode still needs choosing. Each tier is a
+  // different curriculum and each track is a different subject, so both are
+  // chosen before the run rather than buried in an options screen.
   if (g) {
-    ctx.font = `700 12px ${MONO}`;
-    ctx.fillStyle = `hsla(${theme.friendly},90%,66%,0.75)`;
-    ctx.fillText('DIFFICULTY   ◀ ▶', W / 2, TIER_Y - 18);
-    for (let i = 0; i < TIERS.length; i++) {
-      const r = tierRect(i, W);
-      const on = i === g.tierIndex;
+    const cell = (r, on, title, sub, big = 17) => {
       ctx.fillStyle = on ? 'rgba(18,38,62,0.92)' : 'rgba(10,18,34,0.6)';
       roundRect(ctx, r.x, r.y, r.w, r.h, 10);
       ctx.fill();
@@ -593,19 +680,58 @@ export function drawTitle(ctx, W, H, t, g) {
         ? `hsla(48,100%,70%,${0.85 + Math.sin(t * 7) * 0.15})`
         : `hsla(${theme.friendly},70%,60%,0.28)`;
       ctx.stroke();
-      ctx.font = `700 17px ${MONO}`;
+      ctx.font = `700 ${big}px ${MONO}`;
       ctx.fillStyle = on ? '#fff6dc' : 'rgba(180,214,240,0.7)';
-      ctx.fillText(TIERS[i].name, r.x + r.w / 2, r.y + 19);
-      ctx.font = `400 12px ${MONO}`;
-      ctx.fillStyle = on ? 'rgba(255,236,190,0.8)' : 'rgba(150,190,220,0.5)';
-      ctx.fillText(TIERS[i].grade, r.x + r.w / 2, r.y + 35);
+      ctx.fillText(title, r.x + r.w / 2, r.y + (sub ? 19 : r.h / 2 + 1));
+      if (sub) {
+        ctx.font = `400 12px ${MONO}`;
+        ctx.fillStyle = on ? 'rgba(255,236,190,0.8)' : 'rgba(150,190,220,0.5)';
+        ctx.fillText(sub, r.x + r.w / 2, r.y + 35);
+      }
+    };
+
+    ctx.font = `700 12px ${MONO}`;
+    ctx.fillStyle = `hsla(${theme.friendly},90%,66%,0.75)`;
+    ctx.fillText('MODE   ▲ ▼', W / 2, MODE_Y - 16);
+    const mi = Math.max(0, PICKER.findIndex((m) => m.id === g.mode));
+    for (let i = 0; i < PICKER.length; i++) {
+      cell(modeRect(i, W), i === mi, PICKER[i].name, null, 18);
     }
+
+    let blurb = PICKER[mi].blurb;
+    if (g.mode === 'tier') {
+      ctx.font = `700 12px ${MONO}`;
+      ctx.fillStyle = `hsla(${theme.friendly},90%,66%,0.75)`;
+      ctx.fillText('DIFFICULTY   ◀ ▶', W / 2, TIER_Y - 18);
+      for (let i = 0; i < TIERS.length; i++) {
+        cell(tierRect(i, W), i === g.tierIndex, TIERS[i].name, TIERS[i].grade);
+      }
+      const sel = TIERS[g.tierIndex];
+      // Dynamic states its current ratio instead of a blurb. Adaptive
+      // difficulty that will not say what it is doing is just an unexplained
+      // spike.
+      blurb = sel.dynamic ? planLabel(g.plan) : sel.blurb;
+    } else if (g.mode === 'practice') {
+      ctx.font = `700 12px ${MONO}`;
+      ctx.fillStyle = `hsla(${theme.friendly},90%,66%,0.75)`;
+      ctx.fillText('WHAT TO PRACTISE   ◀ ▶', W / 2, TRACK_Y - 16);
+      for (let i = 0; i < TRACKS.length; i++) {
+        cell(trackRect(i, W), i === g.trackIndex, TRACKS[i].name, null, 15);
+      }
+      blurb = `50 waves · ${TRACKS[g.trackIndex].blurb}`;
+    } else {
+      // Arcade needs no second choice, so the space says what it is instead.
+      ctx.font = `700 15px ${MONO}`;
+      ctx.fillStyle = 'rgba(255,236,190,0.85)';
+      ctx.fillText('ELEVEN CONCEPTS · TEN BOSSES · FIFTY WAVES', W / 2, TIER_Y + 4);
+      ctx.font = `400 13px ${MONO}`;
+      ctx.fillStyle = 'rgba(150,190,220,0.6)';
+      ctx.fillText('a new concept behind every boss — beat the clock', W / 2, TIER_Y + 26);
+    }
+
     ctx.font = `400 14px ${MONO}`;
     ctx.fillStyle = 'rgba(170,210,240,0.75)';
-    const sel = TIERS[g.tierIndex];
-    // Dynamic states its current ratio instead of a blurb. Adaptive difficulty
-    // that will not say what it is doing is just an unexplained spike.
-    ctx.fillText(sel.dynamic ? planLabel(g.plan) : sel.blurb, W / 2, TIER_Y + TIER_H + 24);
+    ctx.fillText(blurb, W / 2, TIER_Y + TIER_H + 24);
   }
 
   const touch = Boolean(g && g.touch);
@@ -786,6 +912,88 @@ export function drawHelp(ctx, W, H, g) {
   ctx.fillText(g.touch ? 'tap anywhere to close' : 'H or ESC to close', W / 2, H - 56);
   ctx.restore();
 }
+
+// Fifty waves, all ten bosses, still alive.
+//
+// The clock is the headline rather than the score, because everyone who
+// finishes did the same fifty waves -- score mostly counts how many beasts
+// happened to spawn, while the time is the actual result. The remnants are
+// under it: ten bosses, ten marks, and you only hold them by having beaten
+// each one.
+export function drawVictory(ctx, g, W, H, t) {
+  const fade = clamp(t / 0.9, 0, 1);
+  ctx.save();
+  ctx.fillStyle = `rgba(3,8,20,${0.86 * fade})`;
+  ctx.fillRect(0, 0, W, H);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.globalAlpha = fade;
+
+  const run = g.lastRun || {};
+  const rise = (1 - easeOutCubic(clamp(t / 1.2, 0, 1))) * 40;
+
+  ctx.font = `700 30px ${MONO}`;
+  ctx.fillStyle = `hsla(${theme.friendly},95%,74%,0.9)`;
+  ctx.fillText(run.label || 'ARCADE', W / 2, H / 2 - 214 + rise);
+
+  ctx.font = `700 76px ${MONO}`;
+  ctx.fillStyle = '#eafff4';
+  ctx.shadowColor = `hsla(${theme.friendly},100%,62%,0.95)`;
+  ctx.shadowBlur = 40;
+  ctx.fillText('FIFTY WAVES CLEAR', W / 2, H / 2 - 152 + rise);
+  ctx.shadowBlur = 0;
+
+  // The result.
+  ctx.font = `700 15px ${MONO}`;
+  ctx.fillStyle = 'rgba(150,200,235,0.6)';
+  ctx.fillText('CLEAR TIME', W / 2, H / 2 - 82);
+  ctx.font = `700 84px ${MONO}`;
+  ctx.fillStyle = '#fff3d4';
+  ctx.shadowColor = 'hsla(46,100%,62%,0.95)';
+  ctx.shadowBlur = 30;
+  ctx.fillText(formatClock(run.seconds || 0), W / 2, H / 2 - 22);
+  ctx.shadowBlur = 0;
+
+  const acc = g.attempts ? Math.round((g.solved / g.attempts) * 100) : 100;
+  ctx.font = `500 21px ${MONO}`;
+  ctx.fillStyle = 'rgba(190,225,250,0.92)';
+  ctx.fillText(`SCORE ${g.score}    ACCURACY ${acc}%    BEST ×${g.bestCombo}    CORES ${g.cores}`,
+               W / 2, H / 2 + 36);
+
+  if (run.place) {
+    const s = 1 + Math.sin(t * 3) * 0.03;
+    ctx.save();
+    ctx.translate(W / 2, H / 2 + 82);
+    ctx.scale(s, s);
+    ctx.font = `700 28px ${MONO}`;
+    ctx.fillStyle = '#fff0c4';
+    ctx.shadowColor = 'hsla(46,100%,60%,0.95)';
+    ctx.shadowBlur = 26;
+    ctx.fillText(run.place === 1 ? 'FASTEST CLEAR YET' : `#${run.place} FASTEST`, 0, 0);
+    ctx.restore();
+  }
+
+  // The bosses you had to go through, as the marks they left behind.
+  const trophies = g.progress.trophies ? Object.keys(g.progress.trophies()) : [];
+  if (trophies.length) {
+    ctx.font = `700 12px ${MONO}`;
+    ctx.fillStyle = 'rgba(150,200,235,0.55)';
+    ctx.fillText('REMNANTS', W / 2, H / 2 + 130);
+    ctx.font = `700 30px ${MONO}`;
+    ctx.fillStyle = 'rgba(230,244,255,0.9)';
+    ctx.fillText(REMNANT_ROW, W / 2, H / 2 + 164);
+  }
+
+  const a = 0.55 + Math.sin(t * 4) * 0.45;
+  ctx.font = `700 20px ${MONO}`;
+  ctx.fillStyle = `rgba(255,232,170,${a})`;
+  ctx.fillText(g.touch ? 'TAP TO PLAY AGAIN' : 'ENTER TO PLAY AGAIN   ·   ESC FOR PLAYERS',
+               W / 2, H - 62);
+  ctx.restore();
+}
+
+// In wave order, which is the order they were earned.
+const REMNANT_ROW = '▣  ∞  =  1  ÷  =  ?  ½  0  ◐';
 
 export function drawGameOver(ctx, g, W, H, t) {
   const fade = clamp(t / 0.8, 0, 1);
