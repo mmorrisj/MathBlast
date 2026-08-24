@@ -1285,6 +1285,37 @@ async function main() {
         stand.calm.t < 0.05 && !stand.calm.stark &&
         stand.grim.t > 0.7 && stand.grim.stark && !stand.restarted);
 
+  // Reported as "I hit wave 5 and no boss appeared". It was spawning -- at
+  // y = -140, above the top of the screen, at 13px/s on Easy. Ten seconds
+  // invisible, then forty-six more to cross. Both halves have to stay fixed.
+  const boss5 = await state(async () => {
+    const { TIERS } = await import('/src/difficulty.js');
+    const g = window.game;
+    const out = {};
+    for (const tier of TIERS) {
+      g.state = 'title';
+      g.tierIndex = TIERS.indexOf(tier);
+      g._begin();
+      g.wave = 4;
+      g.beasts = [];
+      g._nextWave();
+      const b = g.beasts.find((x) => x.isBoss);
+      out[tier.id] = b ? {
+        onScreen: b.y - b.h / 2 >= 0,
+        // Bigger than the biggest ordinary beast: a 12-row lattice is 180 tall.
+        bigger: b.h > 190,
+        secs: Math.round((560 - b.y) / Math.max(0.01, b.speed)),
+        announced: g.bossBanner > 0,
+      } : null;
+    }
+    g.state = 'title';
+    return out;
+  });
+  check('every tier puts a boss on screen at wave five, visible and announced',
+        Object.values(boss5).every((b) => b && b.onScreen && b.bigger && b.announced));
+  check('the wave-five boss crosses in well under a minute',
+        Object.values(boss5).every((b) => b.secs > 10 && b.secs < 40));
+
   // --- the wave-ten encounter ------------------------------------------------
   //
   // The boss the game had was 156px across against a 135x180 multiplication
@@ -1320,10 +1351,11 @@ async function main() {
     // The finisher must fire once. readyToBlow stays true after the kill and
     // update() freezes while dying, so an unguarded call re-fired every frame:
     // the death timer reset, the wave never ended, and the bonus paid sixty
-    // times a second.
+    // times a second. The window has to cover the whole finale -- the wave now
+    // holds open until the supernova has collapsed and the orb has been taken.
     const scoreBefore = g.score;
     let blasts = 0;
-    for (let f = 0; f < 60 * 6; f++) {
+    for (let f = 0; f < 60 * 16; f++) {
       const had = Boolean(g.krakenBlast);
       g.update(1 / 60);
       if (!had && g.krakenBlast) blasts++;
@@ -1345,6 +1377,84 @@ async function main() {
         kraken.blasts === 1 && kraken.gain < 20000);
   check('the encounter ends and hands the wave back',
         kraken.ended && kraken.noStopCleared);
+
+  // The finishing shot comes out of the dome: a surge runs the arc inward and
+  // only once it lands does anything leave the muzzle.
+  const surge = await state(() => {
+    const g = window.game;
+    g.state = 'title';
+    g._begin();
+    g.wave = 9;
+    g.beasts = [];
+    g._nextWave();
+    let guard = 0;
+    while (g.kraken && g.kraken.phase === 'fight' && guard++ < 60 * 90) {
+      const t = g.beasts.find((b) => b.alive && !b.locked);
+      if (t) { g.targetBeast = t; g._fire(t.answerText); }
+      g.update(1 / 60);
+    }
+    // Walk the wind-up and sample the surge as it runs.
+    const samples = [];
+    let plateFlared = false;
+    for (let f = 0; f < 60 * 3 && g.kraken && g.kraken.alive; f++) {
+      g.update(1 / 60);
+      if (g.shield.surge > 0) {
+        samples.push(g.shield.surge);
+        if (g.shield.plates.some((p) => p.integrity > 0 && p.glow > 0.5)) plateFlared = true;
+      }
+    }
+    const rising = samples.every((v, i) => i === 0 || v >= samples[i - 1]);
+    return {
+      ran: samples.length > 10,
+      rising,
+      landed: samples.some((v) => v > 0.72),
+      plateFlared,
+      cleared: g.shield.surge === 0 || !g.kraken || !g.kraken.alive,
+    };
+  });
+  check('the finishing shot surges up the dome into the cannon',
+        surge.ran && surge.rising && surge.landed);
+  check('the surge flares the plates it crosses', surge.plateFlared);
+
+  // The finale: burn outward, hang, fall back in, leave a remnant. An
+  // explosion scatters and is over; this one has to leave something behind,
+  // and the wave must not close over the top of it.
+  const finale = await state(() => {
+    const g = window.game;
+    g.state = 'title';
+    g._begin();
+    g.wave = 9;
+    g.beasts = [];
+    g._nextWave();
+    let guard = 0;
+    while (g.kraken && g.kraken.phase === 'fight' && guard++ < 60 * 90) {
+      const t = g.beasts.find((b) => b.alive && !b.locked);
+      if (t) { g.targetBeast = t; g._fire(t.answerText); }
+      g.update(1 / 60);
+    }
+    const seen = new Set();
+    let sawOrb = false;
+    let waveEndedEarly = false;
+    let orbAt = -1;
+    for (let f = 0; f < 60 * 12; f++) {
+      g.update(1 / 60);
+      if (g.krakenBlast) seen.add(g.krakenBlast.phase);
+      const io = g.orbs.list.find((o) => o.infinity);
+      if (io) { sawOrb = true; if (orbAt < 0) orbAt = f; }
+      // The overlay must not appear while the finale is still playing.
+      if ((g.krakenBlast || io) && g.wavePhase === 'interlude') waveEndedEarly = true;
+    }
+    return {
+      phases: [...seen].sort(), sawOrb, waveEndedEarly, orbAt,
+      shield: g.shield.charge != null ? 1 : 1,
+      done: !g.kraken && !g.krakenBlast,
+    };
+  });
+  check('the supernova burns out, hangs, then falls back in',
+        JSON.stringify(finale.phases) === '["hang","in","out"]');
+  check('it leaves an infinity orb behind', finale.sawOrb && finale.orbAt > 0);
+  check('the wave does not close over the top of the finale',
+        !finale.waveEndedEarly && finale.done);
 
   // --- the progress ledger ----------------------------------------------------
   //

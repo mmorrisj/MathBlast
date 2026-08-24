@@ -21,6 +21,13 @@ export const R_DOME = 1105;
 const ARC_FROM = -118 * Math.PI / 180;
 const ARC_TO = -62 * Math.PI / 180;
 const PLATE_R = 17;
+const ARC_MID = (ARC_FROM + ARC_TO) / 2;
+const ARC_HALF = (ARC_TO - ARC_FROM) / 2;
+// The finishing shot is drawn out of the dome. The surge runs the arc from
+// both ends and reaches the turret at the apex here, leaving the rest of the
+// charge window for the beam itself.
+export const SURGE_LAND = 0.72;
+const LAND = SURGE_LAND;
 
 export class Shield {
   constructor() {
@@ -60,6 +67,10 @@ export class Shield {
       }
     }
     this.darkGroups = 0;
+
+    // 0..1 while the Kraken's finisher winds up: two fronts running inward
+    // along the arc, gathering what the player built into the cannon.
+    this.surge = 0;
   }
 
   domeY(x) {
@@ -161,6 +172,23 @@ export class Shield {
   get intact() { return this.plates.reduce((s, p) => s + p.integrity, 0); }
   get coverage() { return this.intact / this.count; }
 
+  // Drive the surge from outside -- main owns the charge ramp. Plates flare as
+  // the front crosses them, so the shot is visibly made of the dome and a
+  // half-built dome sends a thinner one.
+  surgeTo(c) {
+    const was = this.surge;
+    this.surge = c;
+    if (c <= 0 || c >= 1) return;
+    const front = ARC_HALF * (1 - clamp(c / LAND, 0, 1));
+    const prev = ARC_HALF * (1 - clamp(was / LAND, 0, 1));
+    if (front >= prev) return;
+    for (const p of this.plates) {
+      if (p.integrity <= 0) continue;
+      const off = Math.abs(p.angle - ARC_MID);
+      if (off <= prev && off > front) p.glow = 1;
+    }
+  }
+
   update(dt) {
     this.t += dt;
     this.flash = Math.max(0, this.flash - dt * 2.4);
@@ -183,6 +211,64 @@ export class Shield {
     this._drawArc(ctx);
     this._drawAurora(ctx);
     for (const p of this.plates) this._drawPlate(ctx, p);
+    if (this.surge > 0) this._drawSurge(ctx);
+  }
+
+  // Two heads travelling the arc inward with a trailing wake behind them, and
+  // a pool of light building at the apex as they arrive.
+  _drawSurge(ctx) {
+    const c = clamp(this.surge, 0, 1);
+    const run = clamp(c / LAND, 0, 1);
+    // A dome the player never finished has less to give.
+    let built = 0;
+    for (const p of this.plates) built += p.integrity;
+    const power = 0.45 + 0.55 * (built / this.plates.length);
+    const front = ARC_HALF * (1 - run);
+    const tail = 0.16 + run * 0.1;
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineCap = 'round';
+    for (const dir of [-1, 1]) {
+      const head = ARC_MID + dir * front;
+      const back = ARC_MID + dir * Math.min(ARC_HALF, front + tail);
+      const lo = Math.min(head, back), hi = Math.max(head, back);
+      for (let band = 0; band < 3; band++) {
+        ctx.strokeStyle = `hsla(${theme.friendly + band * 14}, 100%, ${72 + band * 10}%, ${power * (0.5 - band * 0.13)})`;
+        ctx.lineWidth = (13 - band * 4) * (0.75 + run * 0.6);
+        ctx.beginPath();
+        ctx.arc(CX, CY, R_DOME + band * 5 - 3, lo, hi);
+        ctx.stroke();
+      }
+      // The head itself, a hot point riding the arc.
+      const hx = CX + Math.cos(head) * R_DOME;
+      const hy = CY + Math.sin(head) * R_DOME;
+      const hr = (16 + run * 20) * power;
+      const g = ctx.createRadialGradient(hx, hy, 0, hx, hy, hr);
+      g.addColorStop(0, `rgba(255,255,255,${0.75 * power})`);
+      g.addColorStop(1, `hsla(${theme.friendly}, 100%, 60%, 0)`);
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(hx, hy, hr, 0, TAU);
+      ctx.fill();
+    }
+
+    // What has arrived, pooling under the turret.
+    if (run > 0.25) {
+      const pool = ((run - 0.25) / 0.75) ** 2 * power;
+      const ax = CX + Math.cos(ARC_MID) * R_DOME;
+      const ay = CY + Math.sin(ARC_MID) * R_DOME;
+      const pr = 20 + pool * 70;
+      const g = ctx.createRadialGradient(ax, ay, 0, ax, ay, pr);
+      g.addColorStop(0, `rgba(255,255,255,${0.6 * pool})`);
+      g.addColorStop(0.4, `hsla(${theme.friendly + 12}, 100%, 70%, ${0.35 * pool})`);
+      g.addColorStop(1, `hsla(${theme.friendly}, 100%, 60%, 0)`);
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(ax, ay, pr, 0, TAU);
+      ctx.fill();
+    }
+    ctx.restore();
   }
 
   _drawPlanet(ctx) {
