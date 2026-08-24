@@ -52,6 +52,26 @@ and `8`. A prime glows red and refuses to split, so the only way to kill it is t
 name it. Nobody is told what a prime is — the rock teaches it by being
 unbreakable.
 
+## The menu
+
+![The menu, mid-run](docs/menu.png)
+
+**☰** on a phone, **ESC** on a keyboard. One labelled list that adapts to what
+you are doing: Resume, How to play, Sound, Change player and End run inside a
+run; Play, Top 20, Your sky and Progress outside one.
+
+It replaced a row of five unlabelled glyphs — `?` `||` `★` `✦` `▤` — which was
+what touch navigation had grown into, and which vanished entirely mid-run. The
+bug underneath was worse than the clutter: **there was no way out of a run on
+any input.** ESC while playing clears the answer box and falls through, so
+changing player meant dying or reloading the page. ESC now clears the box if
+there is something in it and opens the menu if there is not; Android's back
+button does the same.
+
+Leaving a run through the menu records its score exactly as dying does — a run
+is never quietly binned — and the two entries that end a run are marked in red
+and placed last, where a stray thumb will not find them.
+
 ## Players and scores
 
 First launch asks who is playing. A profile owns its own fact history, so two
@@ -159,7 +179,7 @@ plate absorbs a landing that would otherwise cost a core.
 ## Installing it as an app
 
 The game is an installable PWA: a manifest that asks for fullscreen and
-landscape, maskable icons, and a service worker that precaches all 45 files. It
+landscape, maskable icons, and a service worker that precaches all 46 files. It
 boots and plays with the network off — the typeface ships in `assets/font/`
 rather than coming off Google Fonts, which an installed app cannot reach on a
 plane. `npm test` fails if the precache list drifts from what is on disk, so

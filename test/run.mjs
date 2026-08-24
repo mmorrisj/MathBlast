@@ -1041,18 +1041,55 @@ async function main() {
   check('the on-screen beam button discharges overcharge and fires',
         beamed.charge < 1 && beamed.fired);
 
-  await tap(1280 - 18 - 37, 720 - 18 - 37);
-  check('the on-screen help button opens the instructions',
-        await pg.evaluate(() => window.game.help));
+  // Navigation used to be a row of five unlabelled glyphs outside a run and
+  // nothing at all inside one, so a player on a phone could not leave a run or
+  // change player. One labelled menu replaced it.
+  const menuBtn = [1280 - 18 - 37, 720 - 18 - 37];
+  await tap(...menuBtn);
+  const menuMid = await pg.evaluate(() => {
+    const { menuItems } = window.__menu;
+    const g = window.game;
+    return { open: g.menu, paused: g.paused, ids: menuItems(g).map((i) => i.id) };
+  });
+  check('the menu opens mid-run and offers a way out',
+        menuMid.open && menuMid.paused &&
+        menuMid.ids.includes('resume') && menuMid.ids.includes('quit') &&
+        menuMid.ids.includes('player'));
 
-  // The board button is only offered between runs, so end the run first. On a
-  // phone there is no T key, and twenty scores are not reachable without it.
-  await pg.evaluate(() => { window.game.help = false; window.game.state = 'gameover'; });
-  await tap(1280 - 18 * 3 - 74 * 3 + 37, 720 - 18 - 37);
-  const boardOpen = await pg.evaluate(() => window.game.board);
-  await tap(640, 300);
-  check('the on-screen board button opens the top 20 and a tap closes it',
-        boardOpen && !(await pg.evaluate(() => window.game.board)));
+  // Resume has to actually resume. Closing the menu left the run paused, so
+  // the next tap went on unpausing instead of on the game.
+  const rowY0 = (i) => 150 + i * 72 + 31;
+  await tap(640, rowY0(menuMid.ids.indexOf('resume')));
+  check('resume closes the menu and unpauses',
+        await pg.evaluate(() => !window.game.menu && !window.game.paused));
+  await tap(1280 - 18 - 37, 720 - 18 - 37);
+
+  // The thing that was impossible before: leaving a run to change player.
+  const rowY = (i) => 150 + i * 72 + 31;
+  const playerRow = menuMid.ids.indexOf('player');
+  const beforeScores = await pg.evaluate(() => window.game.scores.list.length);
+  await tap(640, rowY(playerRow));
+  const switched = await pg.evaluate(() => ({
+    state: window.game.state, menu: window.game.menu,
+    scores: window.game.scores.list.length,
+  }));
+  check('change player leaves the run and reaches the player picker',
+        switched.state === 'profile' && !switched.menu);
+  // Leaving must not quietly bin the run: the score is recorded either way.
+  check('a run left through the menu still records its score',
+        switched.scores >= beforeScores);
+
+  // And from outside a run the menu reaches everything the glyphs used to.
+  await tap(...menuBtn);
+  const menuOut = await pg.evaluate(() => {
+    const { menuItems } = window.__menu;
+    return menuItems(window.game).map((i) => i.id);
+  });
+  check('the menu reaches the board, the sky and the report between runs',
+        ['board', 'sky', 'report', 'help'].every((id) => menuOut.includes(id)));
+  await tap(640, rowY(menuOut.indexOf('help')));
+  check('a menu entry opens what it names',
+        await pg.evaluate(() => window.game.help && !window.game.menu));
 
   // A phone browser's URL bar shrinks the *visual* viewport while
   // window.innerHeight -- the layout viewport -- stays put. Sizing the canvas
