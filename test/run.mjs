@@ -1141,6 +1141,41 @@ async function main() {
   check('a tap hides the browser chrome, and leaving fullscreen is recoverable',
         !chrome.full && entered && !left && regained);
 
+  // The title screen told a phone player to press H, T, S, G, ESC, C, R, Q and
+  // M -- nine keys that do not exist on a touchscreen. Those destinations are
+  // buttons now.
+  await pg.evaluate(() => {
+    const g = window.game;
+    g.menu = false; g.help = false; g.board = false; g.sky = false; g.report = false;
+    g.state = 'title';
+  });
+  const chipHits = {};
+  for (const [i, key] of [[0, 'help'], [1, 'board'], [2, 'sky'], [3, 'report']]) {
+    await tap(640 - (4 * 250 + 3 * 16) / 2 + i * 266 + 125, 650);
+    chipHits[key] = await pg.evaluate((k) => ({
+      open: Boolean(window.game[k]), playing: window.game.state === 'playing',
+    }), key);
+    await pg.evaluate((k) => { window.game[k] = false; }, key);
+  }
+  check('every title-screen destination is a button on a touchscreen',
+        ['help', 'board', 'sky', 'report'].every((k) => chipHits[k].open && !chipHits[k].playing));
+  // And the fallback still works: a tap that is not a chip or a tier plays.
+  await tap(640, 200);
+  check('tapping elsewhere on the title still starts a run',
+        await pg.evaluate(() => window.game.state === 'playing'));
+
+  // Name entry was a one-way door on a phone: no ESC, and a tap outside the
+  // field only refocused it.
+  const escaped = await pg.evaluate(() => {
+    const g = window.game;
+    g.state = 'profile';
+    g._startNaming();
+    return g.naming;
+  });
+  await tap(640 - 250 + 65, 386 + 28);
+  check('name entry can be left without a keyboard',
+        escaped && !(await pg.evaluate(() => window.game.naming)));
+
   check('no runtime errors on the phone', mErrs.length === 0);
   if (mErrs.length) console.log(mErrs.join('\n'));
   await side.c.close();

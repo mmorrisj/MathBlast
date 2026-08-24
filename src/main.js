@@ -20,10 +20,10 @@ import { Starfield } from './render/starfield.js';
 import { Shield, CX } from './entities/shield.js';
 import { Projectile, Turret } from './entities/projectile.js';
 import { makeBeast, makeBoss, isBossWave, SplitBeast } from './entities/beasts/index.js';
-import { drawHud, drawTitle, drawGameOver, drawFocus, drawInterlude, drawHelp, choiceHitTest, setChoiceLayout, tierHitTest } from './ui/hud.js';
+import { drawHud, drawTitle, drawGameOver, drawFocus, drawInterlude, drawHelp, choiceHitTest, setChoiceLayout, tierHitTest, chipHitTest } from './ui/hud.js';
 import { Quality } from './quality.js';
 import { touchButtons, touchHitTest, drawTouchButtons, drawRotate } from './ui/touch.js';
-import { drawProfiles, profileHitTest, nameButton, drawScores, drawLeaderboard, MAX_ROWS } from './ui/profile.js';
+import { drawProfiles, profileHitTest, nameButton, backButton, drawScores, drawLeaderboard, MAX_ROWS } from './ui/profile.js';
 import { drawStarChart } from './ui/starchart.js';
 import { drawProgress } from './ui/progress.js';
 import { drawMenu, menuItems, menuHitTest } from './ui/menu.js';
@@ -308,8 +308,11 @@ class Game {
       if (this.state === 'profile') {
         if (this.naming) {
           const b = nameButton(W, H);
+          const back = backButton(W, H);
           if (px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h) this._confirmName();
-          else if (this.nameField) this.nameField.focus();
+          else if (px >= back.x && px <= back.x + back.w && py >= back.y && py <= back.y + back.h) {
+            this._stopNaming();
+          } else if (this.nameField) this.nameField.focus();
           return;
         }
         const hit = profileHitTest(px, py, this.profiles.list.length, W);
@@ -319,6 +322,12 @@ class Game {
       if (this.state === 'title') {
         const tierHit = tierHitTest(px, py, W);
         if (tierHit >= 0) { this._setTier(tierHit); return; }
+        if (this.touch) {
+          // Before the tap-anywhere-to-play fallback, or a chip would start a
+          // run rather than open what it says.
+          const chip = chipHitTest(px, py, W);
+          if (chip) { this._menuAction(chip); return; }
+        }
         this._begin();
         return;
       }

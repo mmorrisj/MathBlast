@@ -42,6 +42,36 @@ const TIER_H = 46;
 const TIER_GAP = 12;
 const TIER_Y = 470;
 
+// On a touchscreen the title screen used to read "H HOW TO PLAY  T TOP 20
+// S YOUR SKY  G PROGRESS" -- nine keys that do not exist on a phone. These are
+// the same destinations as buttons.
+export const TITLE_CHIPS = [
+  { id: 'help', label: 'HOW TO PLAY' },
+  { id: 'board', label: 'TOP 20' },
+  { id: 'sky', label: 'YOUR SKY' },
+  { id: 'report', label: 'PROGRESS' },
+];
+const CHIP_W = 250;
+const CHIP_H = 64;
+const CHIP_GAP = 16;
+const CHIP_Y = 618;
+
+export function chipRect(i, W) {
+  const total = TITLE_CHIPS.length * CHIP_W + (TITLE_CHIPS.length - 1) * CHIP_GAP;
+  return { x: W / 2 - total / 2 + i * (CHIP_W + CHIP_GAP), y: CHIP_Y, w: CHIP_W, h: CHIP_H };
+}
+
+export function chipHitTest(px, py, W) {
+  for (let i = 0; i < TITLE_CHIPS.length; i++) {
+    const r = chipRect(i, W);
+    // Generous: thumbs are imprecise and every one of these is harmless.
+    if (px >= r.x - 6 && px <= r.x + r.w + 6 && py >= r.y - 8 && py <= r.y + r.h + 8) {
+      return TITLE_CHIPS[i].id;
+    }
+  }
+  return null;
+}
+
 export function tierRect(i, W) {
   const total = TIERS.length * TIER_W + (TIERS.length - 1) * TIER_GAP;
   return { x: W / 2 - total / 2 + i * (TIER_W + TIER_GAP), y: TIER_Y, w: TIER_W, h: TIER_H };
@@ -526,24 +556,47 @@ export function drawTitle(ctx, W, H, t, g) {
     ctx.fillText(sel.dynamic ? planLabel(g.plan) : sel.blurb, W / 2, TIER_Y + TIER_H + 24);
   }
 
+  const touch = Boolean(g && g.touch);
   const a = 0.55 + Math.sin(t * 4) * 0.45;
   ctx.font = `700 24px ${MONO}`;
   ctx.fillStyle = `rgba(255,232,170,${a})`;
-  ctx.fillText('PRESS ENTER TO BEGIN', W / 2, TIER_Y + TIER_H + 62);
+  // Any tap that is not a chip or a tier starts the run, so do not name one
+  // particular thing to tap.
+  ctx.fillText(touch ? 'TAP TO BEGIN' : 'PRESS ENTER TO BEGIN',
+               W / 2, TIER_Y + TIER_H + 62);
 
-  ctx.font = `600 15px ${MONO}`;
-  ctx.fillStyle = `hsla(${theme.friendly},90%,72%,0.9)`;
-  ctx.fillText('H HOW TO PLAY   T TOP 20   S YOUR SKY   G PROGRESS', W / 2, TIER_Y + TIER_H + 92);
+  if (touch) {
+    for (let i = 0; i < TITLE_CHIPS.length; i++) {
+      const r = chipRect(i, W);
+      ctx.fillStyle = 'rgba(10,18,34,0.78)';
+      roundRect(ctx, r.x, r.y, r.w, r.h, 12);
+      ctx.fill();
+      ctx.lineWidth = 1.4;
+      ctx.strokeStyle = `hsla(${theme.friendly},80%,62%,0.42)`;
+      ctx.stroke();
+      ctx.font = `700 15px ${MONO}`;
+      ctx.fillStyle = 'rgba(210,235,255,0.92)';
+      ctx.fillText(TITLE_CHIPS[i].label, r.x + r.w / 2, r.y + r.h / 2 + 1);
+    }
+  } else {
+    ctx.font = `600 15px ${MONO}`;
+    ctx.fillStyle = `hsla(${theme.friendly},90%,72%,0.9)`;
+    ctx.fillText('H HOW TO PLAY   T TOP 20   S YOUR SKY   G PROGRESS', W / 2, TIER_Y + TIER_H + 92);
+  }
 
   if (g) drawScores(ctx, g.scores, W / 2, 250, W, { limit: 5, width: 420 });
 
   ctx.textAlign = 'center';
   ctx.font = `400 12px ${MONO}`;
   ctx.fillStyle = 'rgba(140,180,215,0.4)';
-  ctx.fillText(
-    `ESC switch player   ·   C colour-safe ${theme.colorSafe ? 'ON' : 'off'}   ·   R reduced motion ${theme.reducedMotion ? 'ON' : 'off'}   ·   Q quality   ·   M mute`,
-    W / 2, H - 26,
-  );
+  // The keyboard strip is meaningless on a phone; the menu button carries all
+  // of it there.
+  if (!touch) {
+    ctx.fillText(
+      `ESC switch player   ·   C colour-safe ${theme.colorSafe ? 'ON' : 'off'}   ·   R reduced motion ${theme.reducedMotion ? 'ON' : 'off'}   ·   Q quality   ·   M mute`,
+      W / 2, H - 26,
+    );
+  }
   ctx.restore();
 }
 
@@ -737,6 +790,9 @@ export function drawGameOver(ctx, g, W, H, t) {
   const a = 0.55 + Math.sin(t * 4) * 0.45;
   ctx.font = `700 20px ${MONO}`;
   ctx.fillStyle = `rgba(255,232,170,${a * fade})`;
-  ctx.fillText('ENTER to play again   ·   T for the full board   ·   ESC to switch player', W / 2, H - 42);
+  ctx.fillText(g.touch
+    ? 'tap to play again   ·   ☰ for the board and to change player'
+    : 'ENTER to play again   ·   T for the full board   ·   ESC to switch player',
+    W / 2, H - 42);
   ctx.restore();
 }

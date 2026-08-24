@@ -60,6 +60,14 @@ unbreakable.
 you are doing: Resume, How to play, Sound, Change player and End run inside a
 run; Play, Top 20, Your sky and Progress outside one.
 
+On a touchscreen the title screen also carries those four as buttons, so the
+common destinations are one tap rather than two. They replaced a line reading
+`H HOW TO PLAY  T TOP 20  S YOUR SKY  G PROGRESS` — nine keys named across the
+title and game-over screens that do not exist on a phone. The keyboard strip
+along the bottom is hidden there for the same reason, and name entry gained a
+**BACK** button: it had only ESC, and a tap outside the field refocused it, so
+on a phone it was a one-way door.
+
 It replaced a row of five unlabelled glyphs — `?` `||` `★` `✦` `▤` — which was
 what touch navigation had grown into, and which vanished entirely mid-run. The
 bug underneath was worse than the clutter: **there was no way out of a run on
