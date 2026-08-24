@@ -19,7 +19,8 @@ import { Post } from './render/post.js';
 import { Starfield } from './render/starfield.js';
 import { Shield, CX, SURGE_LAND } from './entities/shield.js';
 import { Projectile, Turret } from './entities/projectile.js';
-import { makeBeast, makeBoss, isBossWave, SplitBeast } from './entities/beasts/index.js';
+import { makeBeast, SplitBeast } from './entities/beasts/index.js';
+import { bossSteps } from './entities/beasts/boss.js';
 import { drawHud, drawTitle, drawGameOver, drawFocus, drawInterlude, drawHelp, choiceHitTest, setChoiceLayout, tierHitTest, chipHitTest } from './ui/hud.js';
 import { Quality } from './quality.js';
 import { touchButtons, touchHitTest, drawTouchButtons, drawRotate } from './ui/touch.js';
@@ -27,7 +28,7 @@ import { drawProfiles, profileHitTest, nameButton, backButton, drawScores, drawL
 import { drawStarChart } from './ui/starchart.js';
 import { drawProgress } from './ui/progress.js';
 import { drawMenu, menuItems, menuHitTest } from './ui/menu.js';
-import { Kraken } from './entities/kraken.js';
+import { makeBoss, bossOrigin, isBossWave, isLeviathan, DemandBeast } from './entities/bosses/index.js';
 import { dayKey } from './progress.js';
 
 const W = 1280;
@@ -139,8 +140,8 @@ class Game {
     this.inputPulse = 0;
     this.waveBanner = 0;
     this.wavePhase = 'active';
-    this.kraken = null;
-    this.krakenBlast = null;
+    this.boss = null;
+    this.bossBlast = null;
     this.camera.noStop = false;
     this.phaseTimer = 0;
     this.waveMisses = 0;
@@ -654,6 +655,10 @@ class Game {
     t.pendingRaw = raw;
     t.pendingCorrect = correct;
     t.solveTime = elapsed;
+    // The Remainder needs the divisor that was actually fired, not the
+    // canonical answer -- any of several is right, and which one it was is
+    // what the encounter records.
+    t.lastValue = parseInt(raw, 10);
 
     const m = this.turret.muzzle;
     this.shots.push(new Projectile(m.x, m.y, t, raw, correct));
@@ -703,35 +708,23 @@ class Game {
     this.wavePhase = 'active';
     this.boss = null;
     this.bossBanner = 0;
-    this.kraken = null;
-    // Every tenth wave is the Kraken rather than another shell. The camera
-    // pulls back to open the field, which is most of what makes it read as an
-    // event rather than as a slightly larger beast.
-    if (this.wave % 10 === 0) {
-      this.wavePhase = 'kraken';
+    // Every fifth wave is an encounter. The tens are Leviathans -- the camera
+    // pulls right back and the fight is a set piece; the fives are Wardens,
+    // one idea and over quickly. A boss arrives roughly every three and a half
+    // minutes, so making all ten full spectacles would turn a math game into a
+    // boss rush.
+    if (isBossWave(this.wave)) {
+      this.wavePhase = 'boss';
       this.waveRemaining = 0;
-      const arms = 5 + Math.floor(this.wave / 10);
-      this.kraken = new Kraken(CX, 300, arms, this.wave);
-      this.camera.noStop = true;
-      this.waveBanner = 3.2;
-      this.audio.boss();
-      this.camera.shake(1.2);
-    } else if (isBossWave(this.wave)) {
-      this.waveRemaining = 2;
-      this.spawnTimer = 2.6;
-      // On screen from the first frame. It used to enter at y = -140 and fall
-      // at 13px/s, so it was invisible for ten seconds and then took another
-      // forty-six to cross -- which is why it was reported as never appearing.
-      // Low enough that the whole 224px shell clears the top edge and the
-      // score readout, rather than entering with its crown already cut off.
-      const b = makeBoss(this.tier, this.wave, CX + rand(140, -140), 230, 26 + this.wave);
-      this.beasts.push(b);
-      this.boss = b;
+      this.boss = makeBoss(this.wave, CX, bossOrigin(this.wave), this.skill);
+      this.bossApi = this._bossApi();
       this.bossBanner = 2.6;
-      // A smaller version of what the Kraken does, because the reason the
-      // Kraken reads as an event is the camera, not the size.
-      this.camera.shake(0.7);
+      // Hitstop and slow motion are suppressed for the duration: a boss fight
+      // should not keep stopping to admire itself.
+      this.camera.noStop = true;
+      this.waveBanner = isLeviathan(this.wave) ? 3.2 : 2.4;
       this.audio.boss();
+      this.camera.shake(isLeviathan(this.wave) ? 1.2 : 0.7);
     } else {
       this.waveRemaining = waveCount(this.tier, this._paceWave());
       this.spawnTimer = 0.6;
@@ -787,51 +780,102 @@ class Game {
     this.paused = this._wasPaused || false;
   }
 
+  // Everything an encounter is allowed to reach. Bosses are directors: they
+  // never touch scoring, difficulty or the ledger, they just ask for problems
+  // and let them go. Built once per boss wave rather than per frame.
+  _bossApi() {
+    return {
+      wave: this.wave,
+      // A problem from the current curriculum, held in place. The Kraken's
+      // arms and the Echo's fallback both come from here, which is why
+      // neither has to know anything about tiers or the adaptive plan.
+      curriculum: (x, y) => {
+        const pick = this.tier.dynamic ? pickPlan(this.plan) : null;
+        const b = makeBeast(this.tier, this.wave, this.skill, x, y, 0, pick);
+        b.attached = true;
+        b.speed = 0;
+        this.beasts.push(b);
+        return b;
+      },
+      // A problem the boss made up itself.
+      demand: (spec, x, y) => {
+        const b = new DemandBeast(spec, x, y, 0);
+        b.attached = true;
+        this.beasts.push(b);
+        return b;
+      },
+      // Let one go at the planet.
+      release: (b, speed) => {
+        b.attached = false;
+        b.charging = 0;
+        b.launched = true;
+        b.speed = speed;
+      },
+      // The boss got a hit in: the same cost as letting something land.
+      hurt: (x = this.boss ? this.boss.x : CX) => {
+        this.combo = 0;
+        this.waveMisses++;
+        this.audio.wrong(x);
+        this.camera.shake(0.5);
+        const plate = this.shield.crackPlate(x);
+        if (plate) {
+          this.particles.burst(plate.x, plate.y, 16, {
+            hue: theme.hostile, speed: 240, life: 0.6, size: 4,
+          });
+        }
+      },
+      // A leftover, coming at you. The Remainder makes these out of your own
+      // bad guesses, which is the whole lesson of the encounter.
+      fragment: (x) => {
+        const pick = this.tier.dynamic ? pickPlan(this.plan) : null;
+        const speed = descentRate(this.tier, this._paceWave()) * 1.5;
+        this.beasts.push(
+          makeBeast(this.tier, this.wave, this.skill, clamp(x, 120, W - 120), -70, speed, pick));
+      },
+      // The tier's own equation curriculum, for the Balance.
+      equation: () => bossSteps(this.tier.boss, this.wave),
+    };
+  }
+
   // The shot sets off a supernova, and a supernova is not the end of the star.
   // It burns outward, slows, falls back into a point, and leaves a remnant --
   // which is the thing worth collecting. A plain explosion scatters and is
   // over; this one leaves something behind.
-  _killKraken(k) {
+  _killBoss(k) {
     k.kill();
     this.score += 500 + this.wave * 120;
-    this.krakenBlast = { x: k.x, y: k.y, t: 0, phase: 'out' };
+    const rem = k.remnant;
+    this.bossBlast = { x: k.x, y: k.y, t: 0, phase: 'out', remnant: rem };
+    this.progress.boss(k.title);
 
-    this.shockwaves.spawn(k.x, k.y, 3.4, { hue: 190, rings: 5, radius: 620 });
+    this.shockwaves.spawn(k.x, k.y, 3.4, { hue: rem.hue, rings: 5, radius: 620 });
     this.shockwaves.spawn(k.x, k.y, 2.4, { hue: 48, rings: 3, radius: 420 });
     // Long-lived and low-drag, because all of this has to still be in the air
     // when the collapse starts pulling it back.
     this.particles.burst(k.x, k.y, 240, {
-      hue: 194, speed: 760, life: 2.6, size: 6, grav: 0, drag: 1.1, stretch: 1.5,
+      hue: rem.hue + 6, speed: 760, life: 2.6, size: 6, grav: 0, drag: 1.1, stretch: 1.5,
     });
     this.particles.burst(k.x, k.y, 110, {
       hue: 44, speed: 420, life: 2.8, size: 8, grav: 0, drag: 0.9, stretch: 0.9,
     });
     this.particles.burst(k.x, k.y, 60, {
-      hue: theme.boss, speed: 520, life: 2.9, size: 5, grav: 0, drag: 1,
-      glyphs: ['×', '=', '+', '÷', '∞'],
+      hue: k.hue, speed: 520, life: 2.9, size: 5, grav: 0, drag: 1,
+      glyphs: ['×', '=', '+', '÷', rem.glyph],
     });
     this.camera.shake(2.2);
     this.camera.punchIn(1.06, 0, 0);
     this.audio.supernova(k.x);
   }
 
-  // What is left once the debris has fallen back in.
+  // What is left once the debris has fallen back in. Each boss leaves its own
+  // mark, so the trophies on the progress page are ten different things rather
+  // than ten copies of one.
   _remnant(b) {
-    this.orbs.spawnInfinity(b.x, b.y, (x) => this.shield.domePoint(x));
-    this.shockwaves.spawn(b.x, b.y, 1.2, { hue: 188, rings: 2, radius: 200 });
+    const rem = b.remnant || { glyph: '∞', hue: 188 };
+    this.orbs.spawnInfinity(b.x, b.y, (x) => this.shield.domePoint(x), rem);
+    this.shockwaves.spawn(b.x, b.y, 1.2, { hue: rem.hue, rings: 2, radius: 200 });
     this.camera.shake(0.8);
     this.audio.charged();
-  }
-
-  // One arm: an ordinary problem from the current curriculum, so the Kraken
-  // needs to know nothing about difficulty, tiers or the adaptive plan.
-  _spawnArm() {
-    const pick = this.tier.dynamic ? pickPlan(this.plan) : null;
-    const b = makeBeast(this.tier, this.wave, this.skill, CX, 210, 0, pick);
-    b.attached = true;
-    b.speed = 0;
-    this.beasts.push(b);
-    return b;
   }
 
   _spawn() {
@@ -974,6 +1018,12 @@ class Game {
         hue: 352, speed: 260, life: 0.7, size: 3.6, stretch: 0.8,
       });
     } else {
+      // A wrong answer against one of the boss's own demands is information it
+      // may want: the Cipher turns whichever tumblers the guess satisfies, and
+      // the Remainder breaks off the leftover and sends it at you.
+      if (this.boss && this.boss.alive && b.attached) {
+        this.boss.onWrong(shot.value, this.bossApi);
+      }
       b.locked = false;
       b.repel();
       this.combo = 0;
@@ -1066,7 +1116,8 @@ class Game {
 
   // Fold the finished run into the player's profile and the score table.
   _endRun() {
-    this.kraken = null;
+    this.boss = null;
+    this.bossBlast = null;
     this.camera.noStop = false;
     this.state = 'gameover';
     this._releaseWake();
@@ -1099,8 +1150,8 @@ class Game {
       this.beamFx.t += dtReal;
       if (this.beamFx.t > 0.55) this.beamFx = null;
     }
-    if (this.krakenBlast) {
-      const b = this.krakenBlast;
+    if (this.bossBlast) {
+      const b = this.bossBlast;
       b.t += dtReal;
       if (b.phase === 'out' && b.t >= NOVA_OUT) { b.phase = 'hang'; b.t = 0; }
       else if (b.phase === 'hang' && b.t >= NOVA_HANG) { b.phase = 'in'; b.t = 0; }
@@ -1109,7 +1160,7 @@ class Game {
         // gets closer to forming.
         const k = clamp(b.t / NOVA_IN, 0, 1);
         this.particles.attract(b.x, b.y, 900 + k * 5200, dtReal, 1100);
-        if (b.t >= NOVA_IN) { this._remnant(b); this.krakenBlast = null; }
+        if (b.t >= NOVA_IN) { this._remnant(b); this.bossBlast = null; }
       } else if (b.phase === 'hang') {
         // Hanging: just enough pull to stop it dispersing before the collapse.
         this.particles.attract(b.x, b.y, 240, dtReal, 1100);
@@ -1150,14 +1201,12 @@ class Game {
         this.camera.release();
         this._nextWave();
       }
-    } else if (this.wavePhase === 'kraken' && this.kraken) {
-      const k = this.kraken;
-      k.update(dt, () => this._spawnArm(), (arm) => {
-        this.audio.wrong(arm.x);
-        this.camera.shake(0.3);
-      });
-      // The last arm does not kill it. The core opens, the turret winds up,
-      // and one shot finishes it -- an ending rather than a disappearance.
+    } else if (this.wavePhase === 'boss' && this.boss) {
+      const k = this.boss;
+      k.update(dt, this.bossApi);
+      // Clearing the last demand does not kill it. The core opens, the turret
+      // winds up, and one shot finishes it -- an ending rather than a
+      // disappearance. Every boss ends this way; only the body differs.
       if (k.alive && k.spent && this.beasts.length === 0 && k.phase === 'fight') {
         k.expose();
         this.audio.charged();
@@ -1174,15 +1223,15 @@ class Game {
         this.audio.surge(k.chargeLen, SURGE_LAND);
       }
       this.shield.surgeTo(k.charge);
-      if (k.alive && k.readyToBlow) this._killKraken(k);
+      if (k.alive && k.readyToBlow) this._killBoss(k);
       // Not until the whole finale has played. The death timer alone expired
       // mid-collapse, so WAVE CLEAR printed straight over the supernova and
       // the remnant was collected behind an overlay.
-      const finale = this.krakenBlast || this.orbs.list.some((o) => o.infinity);
+      const finale = this.bossBlast || this.orbs.list.some((o) => o.infinity);
       if (!k.alive && k.dieT > 1.4 && !finale) {
         this.shield.surgeTo(0);
         this._surging = false;
-        this.kraken = null;
+        this.boss = null;
         this.camera.noStop = false;
         this._endWave();
       }
@@ -1254,18 +1303,16 @@ class Game {
     this.lastStandT = damp(this.lastStandT, stand, 2.6, dtReal);
     this.audio.setDanger(this.danger);
 
-    // The Kraken owns the camera for the duration: pulled back to open the
-    // field, and no bullet time. The fight's pressure is the clock, and slow
-    // motion hands that back every time an arm gets close.
-    // A boss wave pulls the camera back. The fixed 1280x720 frame cannot hold
-    // a boss worth looking at -- at full zoom a 380px shell fights the score
-    // readout for room -- so the field opens instead of the boss shrinking.
-    if (this.kraken) {
+    // A boss owns the camera for the duration: pulled back to open the field,
+    // and no bullet time. The fixed 1280x720 frame cannot hold a boss worth
+    // looking at -- at full zoom a 380px shell fights the score readout for
+    // room -- so the field opens instead of the boss shrinking. Each boss
+    // names its own pull-back, because how big a boss looks is mostly a camera
+    // decision. Slow motion stays off: the pressure in these fights is the
+    // clock, and bullet time hands that back every time something gets close.
+    if (this.boss) {
       this.camera.slowmo = damp(this.camera.slowmo, 0, 9, dtReal);
-      this.camera.punchIn(0.74, 0, 46);
-    } else if (this.boss && this.boss.alive) {
-      this.camera.slowmo = damp(this.camera.slowmo, 0, 9, dtReal);
-      this.camera.punchIn(0.8, 0, 40);
+      this.camera.punchIn(this.boss.zoom, 0, isLeviathan(this.wave) ? 46 : 30);
     } else {
       const nearMiss = !theme.reducedMotion && maxProgress > 0.86 && this.targetBeast;
       this.camera.slowmo = damp(this.camera.slowmo, nearMiss ? 1 : 0, 7, dtReal);
@@ -1320,11 +1367,11 @@ class Game {
     ctx.save();
     this.camera.apply(ctx, W, H);
 
-    if (this.kraken) {
-      this.kraken.draw(ctx);
-      if (this.kraken.charge > 0) this._drawFinisher(ctx, this.kraken);
+    if (this.boss) {
+      this.boss.draw(ctx);
+      if (this.boss.charge > 0) this._drawFinisher(ctx, this.boss);
     }
-    if (this.krakenBlast) this._drawBlast(ctx);
+    if (this.bossBlast) this._drawBlast(ctx);
     for (const b of this.beasts) b.drawBeam(ctx, this.shield.domeY(b.x), this.time);
     this.shield.draw(ctx);
     if (this.state === 'playing') this.turret.draw(ctx, this.danger, this.overcharge);
@@ -1466,7 +1513,10 @@ class Game {
   // edges; inward the surroundings darken and a point gets brighter as
   // everything falls into it.
   _drawBlast(ctx) {
-    const b = this.krakenBlast;
+    const b = this.bossBlast;
+    // The burn takes the colour of what it is about to leave behind, so the
+    // Hydra's collapse is green and the Prism's is magenta.
+    const h = b.remnant ? b.remnant.hue : 190;
     ctx.save();
     if (b.phase === 'out') {
       const k = 1 - clamp(b.t / NOVA_OUT, 0, 1);
@@ -1474,9 +1524,9 @@ class Game {
       const rr = 1150 * (1 - k * 0.5);
       const g = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, rr);
       g.addColorStop(0, `rgba(255,255,255,${k})`);
-      g.addColorStop(0.16, `hsla(190,100%,82%,${k * 0.9})`);
-      g.addColorStop(0.42, `hsla(212,100%,64%,${k * 0.45})`);
-      g.addColorStop(1, 'hsla(232,100%,50%,0)');
+      g.addColorStop(0.16, `hsla(${h},100%,82%,${k * 0.9})`);
+      g.addColorStop(0.42, `hsla(${h + 22},100%,64%,${k * 0.45})`);
+      g.addColorStop(1, `hsla(${h + 42},100%,50%,0)`);
       ctx.fillStyle = g;
       ctx.fillRect(b.x - rr, b.y - rr, rr * 2, rr * 2);
     } else if (b.phase === 'in') {
@@ -1492,7 +1542,7 @@ class Game {
       const r = 230 * (1 - k) + 12;
       const g = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, r);
       g.addColorStop(0, `rgba(255,255,255,${0.35 + k * 0.65})`);
-      g.addColorStop(1, 'hsla(196,100%,60%,0)');
+      g.addColorStop(1, `hsla(${h + 6},100%,60%,0)`);
       ctx.fillStyle = g;
       ctx.fillRect(b.x - r, b.y - r, r * 2, r * 2);
     }
