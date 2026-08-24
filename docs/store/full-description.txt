@@ -1,0 +1,61 @@
+The math is not a quiz between the fun parts. The math *is* the game.
+
+Beasts are falling toward your planet. The only way to stop one is to solve
+it — and every problem is drawn as the thing it actually means.
+
+A 7 × 8 beast is a countable 7-by-8 grid, so multiplication looks like area.
+An asteroid marked "? × ? = 48" fractures into two chunks physically sized 6
+and 8. A prime glows red and refuses to break, so the only way through is to
+name it — nobody is told what a prime is, the rock teaches it by being
+unbreakable. A fraction crystal has a wedge missing and facets you can count.
+A child who is stuck can always count something on the screen.
+
+IT MOVES WITH YOUR CHILD
+
+Pick DYNAMIC and the game starts at single-digit addition and opens the
+curriculum as each concept is mastered. Material they have got recedes to a
+trickle; material they have never met arrives. You do not have to know which
+grade to choose, and you do not have to keep changing it.
+
+Or pick a fixed tier — they are three different curriculums, not the same
+questions sped up.
+
+• EASY (grades 1–3) — single-digit adding and subtracting shown as base-ten
+blocks, times tables to nine, division as equal groups. Nothing above nine.
+• MEDIUM (grades 4–6) — two-digit arithmetic, times tables to twelve,
+factors and primes, unit fractions, one-step equations.
+• HARD (grade 7) — negative numbers, fractions with unlike denominators,
+percentages, squares and roots, two-step equations.
+
+IT LEARNS WHAT YOUR CHILD FINDS HARD
+
+MathBlast remembers how fast and how accurately each fact is answered, and
+sends the ones they are slowest on around more often. The star chart turns
+that into a sky — one star per times-table fact, brightening as it is learned,
+joining into a constellation when a whole row is mastered. "I've got my
+fives" becomes something you can see.
+
+A progress page shows a parent the whole curriculum at once — which topics
+have been practised, which are going well, which have not been touched yet.
+Coverage and accuracy are kept separate, because "never seen it" and "seen it
+and struggling" need different responses.
+
+Everything stays on the device. Two children sharing a tablet get their own
+progress rather than averaging into one blurred learner.
+
+NO ADS. NO TRACKING. NO ACCOUNTS.
+
+No advertising. No analytics. No sign-up, no email, no data collected of any
+kind — the game makes no network calls at all and works completely offline,
+on a plane or in a car. You pay once and that is the entire business model.
+
+BUILT TO BE PLAYED, NOT ENDURED
+
+A fully synthesized soundtrack that follows how well you are doing — play
+well and the music literally brightens into a major key. Wrong answers never
+buzz or scold; the beast just gets closer and the problem stays on screen.
+Full-screen arcade graphics, one-handed touch controls, and a colour-safe
+palette and reduced-motion mode for players who need them.
+
+Open source under the GPL. Every claim above can be checked against the code
+at github.com/mmorrisj/MathBlast

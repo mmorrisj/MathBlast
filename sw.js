@@ -4,7 +4,7 @@
 // network calls once it is running, so "offline" is simply its normal state;
 // the only thing the network is for is picking up a new version.
 
-const VERSION = '4518e4d23c04';
+const VERSION = '3b105cfb2b9a';
 const CACHE = `mathblast-${VERSION}`;
 
 const ASSETS = [
@@ -48,6 +48,7 @@ const ASSETS = [
   "./src/ui/starchart.js",
   "./src/ui/touch.js",
   "./src/util.js",
+  "./assets/font/OFL.txt",
   "./assets/font/jetbrains-mono-latin.woff2",
   "./assets/icons/icon-1024.png",
   "./assets/icons/icon-192.png",

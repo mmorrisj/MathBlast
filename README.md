@@ -187,7 +187,7 @@ plate absorbs a landing that would otherwise cost a core.
 ## Installing it as an app
 
 The game is an installable PWA: a manifest that asks for fullscreen and
-landscape, maskable icons, and a service worker that precaches all 38 files. It
+landscape, maskable icons, and a service worker that precaches all 46 files. It
 boots and plays with the network off — the typeface ships in `assets/font/`
 rather than coming off Google Fonts, which an installed app cannot reach on a
 plane. `npm test` fails if the precache list drifts from what is on disk, so
@@ -212,7 +212,11 @@ every shipped URL is relative so a subpath host works too — GitHub Pages, then
 **Add to Home screen** on the phone, gets you the installed app without
 building anything. For an actual Play Store listing it wraps in Capacitor
 (`npm run app:apk`). Both routes, and the parts that are paperwork rather than
-code, are in [docs/ANDROID.md](docs/ANDROID.md).
+code, are in [docs/ANDROID.md](docs/ANDROID.md). What it would take to *sell* it, with the
+web version left free -- what the paid app can honestly offer that this one does
+not, and the fourteen-day Play testing gate that dominates the schedule -- is in
+[docs/MARKETING.md](docs/MARKETING.md), and what each store requires before it
+will take the app is in [docs/COMPLIANCE.md](docs/COMPLIANCE.md).
 
 ## Your sky
 
@@ -519,3 +523,14 @@ The suite also opens a second, touch-enabled context at phone dimensions and
 drives the whole flow by tapping — profile creation, starting a run, answering,
 the beam and help buttons — because none of that is reachable from the desktop
 page.
+
+## Licence
+
+**GPL-3.0-only** — see [LICENSE](LICENSE). The game is free to play on the web
+and free to build from source; anything derived from it has to stay under the
+same licence, which is the point. The typeface in `assets/font/` is not mine and
+is not covered by it: JetBrains Mono is SIL Open Font License 1.1, and its terms
+travel with it in `assets/font/OFL.txt`.
+
+"MathBlast", and the store listing that carries the name, are not part of the
+licence grant.
