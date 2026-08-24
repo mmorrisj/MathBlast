@@ -42,7 +42,7 @@ export function dayKey(d = new Date()) {
 }
 
 function blank() {
-  return { concepts: {}, days: {}, runs: 0, firstSeen: dayKey() };
+  return { concepts: {}, days: {}, runs: 0, firstSeen: dayKey(), bosses: {} };
 }
 
 export class Progress {
@@ -93,6 +93,19 @@ export class Progress {
     c.landed++;
     this.save();
   }
+
+  // A boss went down. Kept by name and counted, so the progress page can show
+  // which encounters a player has actually beaten rather than just how far
+  // they got -- reaching wave 30 and beating the Balance are different facts.
+  boss(title) {
+    if (!title) return;
+    if (!this.data.bosses) this.data.bosses = {};
+    this.data.bosses[title] = (this.data.bosses[title] || 0) + 1;
+    this.save();
+  }
+
+  // { title -> times beaten }, for the trophy row.
+  trophies() { return { ...(this.data.bosses || {}) }; }
 
   startRun() {
     this.data.runs++;

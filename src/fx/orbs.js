@@ -19,7 +19,10 @@ export class Orbs {
   // What is left when a Kraken collapses: one dense remnant rather than a
   // scatter. Slow, luminous, marked with the sign, and worth a whole plate --
   // a firework leaves nothing behind, and this fight has earned a keepsake.
-  spawnInfinity(x, y, targetFor) {
+  // The remnant a boss collapses into. Every encounter leaves its own mark --
+  // the Kraken's infinity sign, the Balance's equals, the Hydra's one -- so
+  // the trophies read as ten different things rather than ten copies.
+  spawnInfinity(x, y, targetFor, remnant = { glyph: '∞', hue: 188 }) {
     const t = targetFor(x);
     this.list.push({
       x, y,
@@ -29,10 +32,11 @@ export class Orbs {
       scatter: 1.5,               // hangs there long enough to be looked at
       energy: 3.2,                // several plates' worth
       size: 26,
-      hue: 188,
+      hue: remnant.hue,
       wobble: rand(TAU),
       trail: [],
       infinity: true,
+      glyph: remnant.glyph,
       done: false,
     });
     return 1;
@@ -167,7 +171,7 @@ export class Orbs {
         ctx.font = `700 ${Math.round(r * 1.15)}px "JetBrains Mono", ui-monospace, monospace`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText('∞', o.x, o.y + 1);
+        ctx.fillText(o.glyph || '∞', o.x, o.y + 1);
         ctx.restore();
       }
     }

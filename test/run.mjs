@@ -29,7 +29,7 @@ async function loadPlaywright() {
 }
 
 const results = [];
-const check = (name, ok) => { results.push({ name, ok: Boolean(ok) }); };
+const check = (name, ok, why = '') => { results.push({ name, ok: Boolean(ok), why }); };
 
 async function main() {
   const pw = await loadPlaywright();
@@ -933,24 +933,25 @@ async function main() {
     const g = window.game;
     g.wave = 4; g.waveRemaining = 0; g.beasts.length = 0;
     const kinds = new Set();
-    const bossStages = new Set();
+    const bosses = new Set();
     const tick = setInterval(() => {
       if (g.state !== 'playing') return done();
+      if (g.boss) bosses.add(g.boss.title);
       const t = g.targetBeast;
       if (!t) return;
       kinds.add(t.constructor.name);
-      if (t.isBoss) bossStages.add(t.stage);
       g._fire(t.answerText);
       if (g.wave >= 7) return done();
     }, 130);
     function done() {
       clearInterval(tick);
-      resolve({ kinds: [...kinds], bossStages: [...bossStages], wave: g.wave, state: g.state });
+      resolve({ kinds: [...kinds], bosses: [...bosses], wave: g.wave, state: g.state });
     }
     setTimeout(done, 70000);
   }));
-  check('a real run reaches wave 7 through every beast type',
-        soak.wave >= 7 && soak.kinds.length >= 4 && soak.bossStages.length === 3);
+  check('a real run reaches wave 7 through every beast type, and past a boss',
+        soak.wave >= 7 && soak.kinds.length >= 4 && soak.bosses.includes('THE BULWARK'),
+        JSON.stringify(soak));
 
   check('no runtime errors anywhere in the suite', errs.length === 0);
   if (errs.length) console.log(errs.join('\n'));
@@ -1286,8 +1287,10 @@ async function main() {
         stand.grim.t > 0.7 && stand.grim.stark && !stand.restarted);
 
   // Reported as "I hit wave 5 and no boss appeared". It was spawning -- at
-  // y = -140, above the top of the screen, at 13px/s on Easy. Ten seconds
-  // invisible, then forty-six more to cross. Both halves have to stay fixed.
+  // y = -140, above the top of the screen, at 13px/s on Easy: ten seconds
+  // invisible, then forty-six more to cross. Wave five is the Bulwark now, but
+  // the two things that made that report true have to stay fixed: a boss has
+  // to be on screen, and it has to be a clock rather than scenery.
   const boss5 = await state(async () => {
     const { TIERS } = await import('/src/difficulty.js');
     const g = window.game;
@@ -1299,22 +1302,33 @@ async function main() {
       g.wave = 4;
       g.beasts = [];
       g._nextWave();
-      const b = g.beasts.find((x) => x.isBoss);
-      out[tier.id] = b ? {
-        onScreen: b.y - b.h / 2 >= 0,
-        // Bigger than the biggest ordinary beast: a 12-row lattice is 180 tall.
-        bigger: b.h > 190,
-        secs: Math.round((560 - b.y) / Math.max(0.01, b.speed)),
-        announced: g.bossBanner > 0,
+      const announced = g.bossBanner > 0;
+      for (let f = 0; f < 30; f++) g.update(1 / 60);
+      const k = g.boss;
+      const plates = g.beasts.filter((x) => x.attached);
+      const y0 = k ? k.y : 0;
+      // Left alone, how long until the wall is on the dome?
+      for (let f = 0; f < 60 * 4; f++) g.update(1 / 60);
+      out[tier.id] = k ? {
+        onScreen: y0 > 0 && y0 < 560,
+        plates: plates.length,
+        // Plates ride the wall, so they are on screen with it.
+        platesOnScreen: plates.every((b) => b.y > 0 && b.y < 620),
+        announced,
+        // It closes: four seconds of being ignored moves it visibly downward.
+        creeps: g.boss ? g.boss.y > y0 + 30 : false,
+        title: k.title,
       } : null;
     }
     g.state = 'title';
     return out;
   });
-  check('every tier puts a boss on screen at wave five, visible and announced',
-        Object.values(boss5).every((b) => b && b.onScreen && b.bigger && b.announced));
-  check('the wave-five boss crosses in well under a minute',
-        Object.values(boss5).every((b) => b.secs > 10 && b.secs < 40));
+  check('every tier puts a boss on screen at wave five, announced',
+        Object.values(boss5).every((b) => b && b.onScreen && b.announced &&
+                                          b.title === 'THE BULWARK'),
+        JSON.stringify(boss5));
+  check('the wave-five wall holds real problems and closes when ignored',
+        Object.values(boss5).every((b) => b.plates >= 3 && b.platesOnScreen && b.creeps));
 
   // --- the wave-ten encounter ------------------------------------------------
   //
@@ -1328,9 +1342,9 @@ async function main() {
     g.wave = 9;
     g.beasts = [];
     g._nextWave();
-    const started = { phase: g.wavePhase, has: Boolean(g.kraken), noStop: g.camera.noStop };
+    const started = { phase: g.wavePhase, has: Boolean(g.boss), noStop: g.camera.noStop };
     for (let f = 0; f < 120; f++) g.update(1 / 60);
-    const opened = { zoom: g.kraken ? +g.camera.zoom.toFixed(2) : 1, slowmo: g.camera.slowmo };
+    const opened = { zoom: g.boss ? +g.camera.zoom.toFixed(2) : 1, slowmo: g.camera.slowmo };
 
     // Arms are ordinary problems: they must accept their own answers, and the
     // ledger has to see them like anything else.
@@ -1339,14 +1353,14 @@ async function main() {
     // Clearing arms has to advance the fight. Keyed on launches rather than on
     // arms grown, destroying one in orbit only made room for a replacement and
     // the encounter never ended -- punishing the player for being quick.
-    const before = g.kraken.left;
+    const before = g.boss.left;
     let guard = 0;
-    while (g.kraken && g.kraken.phase === 'fight' && guard++ < 60 * 60) {
+    while (g.boss && g.boss.phase === 'fight' && guard++ < 60 * 60) {
       const t = g.beasts.find((b) => b.alive && !b.locked);
       if (t) { g.targetBeast = t; g._fire(t.answerText); }
       g.update(1 / 60);
     }
-    const cleared = { left: g.kraken ? g.kraken.left : -1, phase: g.kraken ? g.kraken.phase : 'gone' };
+    const cleared = { left: g.boss ? g.boss.left : -1, phase: g.boss ? g.boss.phase : 'gone' };
 
     // The finisher must fire once. readyToBlow stays true after the kill and
     // update() freezes while dying, so an unguarded call re-fired every frame:
@@ -1356,19 +1370,19 @@ async function main() {
     const scoreBefore = g.score;
     let blasts = 0;
     for (let f = 0; f < 60 * 16; f++) {
-      const had = Boolean(g.krakenBlast);
+      const had = Boolean(g.bossBlast);
       g.update(1 / 60);
-      if (!had && g.krakenBlast) blasts++;
+      if (!had && g.bossBlast) blasts++;
     }
     return {
       started, opened, armsOk, before, cleared, blasts,
       gain: g.score - scoreBefore,
-      ended: g.wavePhase !== 'kraken' && !g.kraken,
+      ended: g.wavePhase !== 'boss' && !g.boss,
       noStopCleared: g.camera.noStop === false,
     };
   });
   check('wave ten opens the Kraken and pulls the camera back',
-        kraken.started.phase === 'kraken' && kraken.started.has &&
+        kraken.started.phase === 'boss' && kraken.started.has &&
         kraken.opened.zoom < 0.8 && kraken.opened.slowmo < 0.01);
   check('its arms are ordinary problems that answer themselves', kraken.armsOk);
   check('clearing arms advances the fight instead of growing replacements',
@@ -1388,7 +1402,7 @@ async function main() {
     g.beasts = [];
     g._nextWave();
     let guard = 0;
-    while (g.kraken && g.kraken.phase === 'fight' && guard++ < 60 * 90) {
+    while (g.boss && g.boss.phase === 'fight' && guard++ < 60 * 90) {
       const t = g.beasts.find((b) => b.alive && !b.locked);
       if (t) { g.targetBeast = t; g._fire(t.answerText); }
       g.update(1 / 60);
@@ -1396,7 +1410,7 @@ async function main() {
     // Walk the wind-up and sample the surge as it runs.
     const samples = [];
     let plateFlared = false;
-    for (let f = 0; f < 60 * 3 && g.kraken && g.kraken.alive; f++) {
+    for (let f = 0; f < 60 * 3 && g.boss && g.boss.alive; f++) {
       g.update(1 / 60);
       if (g.shield.surge > 0) {
         samples.push(g.shield.surge);
@@ -1409,7 +1423,7 @@ async function main() {
       rising,
       landed: samples.some((v) => v > 0.72),
       plateFlared,
-      cleared: g.shield.surge === 0 || !g.kraken || !g.kraken.alive,
+      cleared: g.shield.surge === 0 || !g.boss || !g.boss.alive,
     };
   });
   check('the finishing shot surges up the dome into the cannon',
@@ -1427,7 +1441,7 @@ async function main() {
     g.beasts = [];
     g._nextWave();
     let guard = 0;
-    while (g.kraken && g.kraken.phase === 'fight' && guard++ < 60 * 90) {
+    while (g.boss && g.boss.phase === 'fight' && guard++ < 60 * 90) {
       const t = g.beasts.find((b) => b.alive && !b.locked);
       if (t) { g.targetBeast = t; g._fire(t.answerText); }
       g.update(1 / 60);
@@ -1438,16 +1452,16 @@ async function main() {
     let orbAt = -1;
     for (let f = 0; f < 60 * 12; f++) {
       g.update(1 / 60);
-      if (g.krakenBlast) seen.add(g.krakenBlast.phase);
+      if (g.bossBlast) seen.add(g.bossBlast.phase);
       const io = g.orbs.list.find((o) => o.infinity);
       if (io) { sawOrb = true; if (orbAt < 0) orbAt = f; }
       // The overlay must not appear while the finale is still playing.
-      if ((g.krakenBlast || io) && g.wavePhase === 'interlude') waveEndedEarly = true;
+      if ((g.bossBlast || io) && g.wavePhase === 'interlude') waveEndedEarly = true;
     }
     return {
       phases: [...seen].sort(), sawOrb, waveEndedEarly, orbAt,
       shield: g.shield.charge != null ? 1 : 1,
-      done: !g.kraken && !g.krakenBlast,
+      done: !g.boss && !g.bossBlast,
     };
   });
   check('the supernova burns out, hangs, then falls back in',
@@ -1742,7 +1756,10 @@ async function main() {
   stop();
 
   const failed = results.filter((r) => !r.ok);
-  for (const r of results) console.log(`${r.ok ? 'ok  ' : 'FAIL'}  ${r.name}`);
+  for (const r of results) {
+    console.log(`${r.ok ? 'ok  ' : 'FAIL'}  ${r.name}`);
+    if (!r.ok && r.why) console.log(`        ${r.why}`);
+  }
   console.log(`\n${results.length - failed.length}/${results.length} passed`);
   process.exit(failed.length ? 1 : 0);
 }

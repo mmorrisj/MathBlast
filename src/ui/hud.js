@@ -125,7 +125,35 @@ function drawBossBanner(ctx, g, W, H) {
   ctx.fillStyle = '#ffe4f2';
   ctx.shadowColor = `hsla(${theme.boss},100%,62%,0.95)`;
   ctx.shadowBlur = 24;
-  ctx.fillText('GUARDIAN  ·  SOLVE IT DOWN', W / 2, 40);
+  const b = g.boss;
+  ctx.fillText(b ? `${b.title}  ·  ${b.tagline}` : 'GUARDIAN  ·  SOLVE IT DOWN', W / 2, 40);
+  ctx.restore();
+}
+
+// How much of the boss is left, as a row of pips under the banner.
+//
+// These used to be drawn in the world, at a per-boss offset from the body.
+// That meant ten hand-tuned positions competing with ten different silhouettes
+// -- the Hydra's landed on its own root head, the Cipher's inside its demand
+// box. In the HUD there is one position, it is always legible, and it does not
+// move when the camera pulls back.
+function drawBossPips(ctx, g, W) {
+  const b = g.boss;
+  if (!b || !b.alive || b.total <= 0 || b.left < 0) return;
+  const n = b.total;
+  const gap = n > 12 ? 15 : 22;
+  const x0 = W / 2 - ((n - 1) * gap) / 2;
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < n; i++) {
+    const live = i < b.left;
+    ctx.fillStyle = live
+      ? `hsla(${theme.boss}, 100%, 72%, 0.92)`
+      : 'rgba(130,120,160,0.32)';
+    ctx.beginPath();
+    ctx.arc(x0 + i * gap, 66, live ? 5 : 3.5, 0, TAU);
+    ctx.fill();
+  }
   ctx.restore();
 }
 
@@ -325,6 +353,7 @@ export function drawHud(ctx, g, W, H) {
 
   drawEntry(ctx, g, W, H);
   drawBossBanner(ctx, g, W, H);
+  drawBossPips(ctx, g, W);
   drawLastStand(ctx, g, W, H, g.time);
   drawMastered(ctx, g, W, H);
   ctx.restore();
