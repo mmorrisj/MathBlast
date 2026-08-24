@@ -18,16 +18,14 @@ const PAD = 18;
 export function touchButtons(g, W, H) {
   // Bottom corners: clear of the score/cores/shield readouts along the top, and
   // where thumbs already rest when the device is held in landscape.
+  // One labelled menu rather than a row of glyphs. This had grown to five
+  // unlabelled symbols outside a run and none of them inside one, so a player
+  // on a phone could not leave a run or change player at all.
   const out = [
-    { id: 'help', label: '?', x: W - PAD - BTN, y: H - PAD - BTN, w: BTN, h: BTN },
-    { id: 'pause', label: '||', x: W - PAD * 2 - BTN * 2, y: H - PAD - BTN, w: BTN, h: BTN },
+    { id: 'menu', label: '☰', x: W - PAD - BTN, y: H - PAD - BTN, w: BTN, h: BTN },
   ];
-  // The board is only offered between runs: mid-run there is no room for it
-  // beside the beam, and no reason to read it.
-  if (g.state !== 'playing') {
-    out.push({ id: 'board', label: '★', x: W - PAD * 3 - BTN * 3, y: H - PAD - BTN, w: BTN, h: BTN });
-    out.push({ id: 'sky', label: '✦', x: W - PAD * 4 - BTN * 4, y: H - PAD - BTN, w: BTN, h: BTN });
-    out.push({ id: 'report', label: '▤', x: W - PAD * 5 - BTN * 5, y: H - PAD - BTN, w: BTN, h: BTN });
+  if (g.state === 'playing') {
+    out.push({ id: 'pause', label: '||', x: W - PAD * 2 - BTN * 2, y: H - PAD - BTN, w: BTN, h: BTN });
   }
   if (g.state === 'playing') {
     out.push({
