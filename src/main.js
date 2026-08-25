@@ -224,6 +224,12 @@ class Game {
     for (let i = 0; i < 8; i++) this.shield.deposit(CX + rand(260, -260), 0.5);
     for (const p of this.shield.plates) { p.pop = 0; p.glow = 0; }
     this.shield.auroras.length = 0;
+    // The seeded plates are the starting state, not eight absorbed orbs: no
+    // opening fireworks on the dome, and none on the planet either. `lit` is
+    // left at zero, so the cities under it still kindle up to that coverage
+    // over the first second of the run.
+    this.shield.pulse = 0;
+    for (const c of this.shield.cities) c.flare = 0;
   }
 
   // --- input -------------------------------------------------------------
@@ -1681,7 +1687,7 @@ class Game {
       if (!b.arriving) b.drawBeam(ctx, this.shield.domeY(b.x), this.time);
     }
     if (this.warps.length) this._drawWarps(ctx);
-    this.shield.draw(ctx);
+    this.shield.draw(ctx, q.particles);
     if (this.state === 'playing') this.turret.draw(ctx, this.danger, this.overcharge);
     for (const b of this.beasts) {
       // Closing from far off: drawn small and hazy around its own centre, so

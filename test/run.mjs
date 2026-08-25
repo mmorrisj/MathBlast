@@ -1488,6 +1488,117 @@ async function main() {
   check('the wave does not close over the top of the finale',
         !finale.waveEndedEarly && finale.done);
 
+  // --- the planet under the dome ----------------------------------------------
+  //
+  // The dome was the only thing that answered a rebuilt plate. The planet it
+  // exists to protect sat there at a fixed brightness whatever the player did,
+  // so the reward for a clean wave was a number in the corner. Now coverage
+  // reads as how much of the world dares turn its lights back on.
+
+  const clearField = () => state(() => {
+    const g = window.game;
+    g.beasts.length = 0; g.shots.length = 0; g.targetBeast = null;
+    g.boss = null; g.bossBlast = null;
+    g.waveRemaining = 0; g.spawnTimer = 999; g.wavePhase = 'active';
+    g.shockwaves.clear(); g.orbs.clear();
+  });
+  const setCoverage = (c) => page.evaluate((cov) => {
+    const s = window.game.shield;
+    for (const p of s.plates) p.integrity = 0;
+    const n = Math.round(s.plates.length * cov);
+    for (let i = 0; i < n; i++) s.plates[i].integrity = 1;
+    s.lit = s.coverage;               // skip the ramp; it is tested separately
+    s.pulse = 0;
+    for (const c of s.cities) c.flare = 0;
+  }, c);
+
+  await clearField();
+  const planet = await page.evaluate(() => {
+    const s = window.game.shield;
+    const at = (cov) => {
+      for (const p of s.plates) p.integrity = 0;
+      const n = Math.round(s.plates.length * cov);
+      for (let i = 0; i < n; i++) s.plates[i].integrity = 1;
+      s.lit = s.coverage;
+      return { awake: s.awake, curtains: s.curtains };
+    };
+    const steps = [0, 0.25, 0.5, 0.75, 1].map(at);
+    // A city just past its threshold is still guttering; well past, it holds.
+    const city = s.cities.slice().sort((a, b) => a.wake - b.wake)[10];
+    s.lit = city.wake + 0.02;
+    const mid = s.woke(city);
+    s.lit = city.wake + 0.5;
+    const settled = s.woke(city);
+    return { steps, mid, settled, cities: s.cities.length };
+  });
+  check('the world lights up city by city as the dome is rebuilt',
+        planet.steps.every((s, i) => i === 0 || s.awake > planet.steps[i - 1].awake) &&
+        planet.steps[0].awake === 0 && planet.steps[4].awake === planet.cities,
+        JSON.stringify(planet.steps));
+  check('a city gutters before it holds',
+        planet.mid > 0 && planet.mid < 0.5 && planet.settled === 1,
+        JSON.stringify([planet.mid, planet.settled]));
+  check('the aurora thickens with the dome',
+        planet.steps[0].curtains === 0 && planet.steps[4].curtains > planet.steps[2].curtains,
+        JSON.stringify(planet.steps.map((s) => s.curtains)));
+
+  const kindled = await page.evaluate(async () => {
+    const { CX, R_SURFACE } = await import('/src/entities/shield.js');
+    const s = window.game.shield;
+    for (const p of s.plates) p.integrity = 0;
+    for (const c of s.cities) c.flare = 0;
+    s.pulse = 0;
+    s.deposit(320, 1);
+    const dx = (c) => Math.abs(CX + Math.cos(c.angle) * R_SURFACE - 320);
+    const near = s.cities.filter((c) => dx(c) < 120);
+    const far = s.cities.filter((c) => dx(c) > 400);
+    return {
+      pulse: s.pulse,
+      nearLit: near.filter((c) => c.flare > 0).length,
+      near: near.length,
+      farLit: far.filter((c) => c.flare > 0).length,
+    };
+  });
+  check('energy reaching the dome flares the cities under it',
+        kindled.pulse > 0 && kindled.near > 0 && kindled.nearLit === kindled.near &&
+        kindled.farLit === 0, JSON.stringify(kindled));
+
+  const cored = await page.evaluate(() => {
+    const s = window.game.shield;
+    for (const p of s.plates) p.integrity = 1;
+    s.lit = 1;
+    const all = s.awake;
+    s.loseCore();
+    return { all, afterLoss: s.awake, groups: 3 };
+  });
+  check('a lost core puts a third of the world back into the dark',
+        cored.afterLoss < cored.all && cored.afterLoss > 0 &&
+        Math.abs(cored.afterLoss - cored.all * 2 / 3) < cored.all * 0.1,
+        JSON.stringify(cored));
+
+  // And the whole point: it has to be visible. Sample the left limb, away from
+  // the turret and every piece of HUD text, and compare the two extremes.
+  const band = () => page.evaluate(() => {
+    const d = document.getElementById('game').getContext('2d')
+      .getImageData(150, 630, 320, 80).data;
+    let sum = 0;
+    for (let i = 0; i < d.length; i += 4) sum += d[i] + d[i + 1] + d[i + 2];
+    return sum / (d.length / 4) / 3;
+  });
+  await page.evaluate(() => { window.game.shield.darkGroups = 0; });
+  await setCoverage(0);
+  await page.waitForTimeout(500);
+  const domeDown = await band();
+  await setCoverage(1);
+  await page.waitForTimeout(500);
+  const domeUp = await band();
+  check('the planet is visibly brighter with the dome up',
+        domeUp > domeDown * 1.4,
+        JSON.stringify({ down: Math.round(domeDown), up: Math.round(domeUp) }));
+
+  await setCoverage(0.35);
+  await clearField();
+
   // --- the progress ledger ----------------------------------------------------
   //
   // The skill table only recorded facts carrying an (a, b) pair -- four of the
