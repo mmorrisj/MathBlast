@@ -21,6 +21,7 @@ import { Encounter } from './base.js';
 const SLOTS = 4;
 const CREEP = 15;             // px/s the wall descends, always
 const PUSH = 62;              // px a broken plate shoves it back
+const BREACH = 128;           // how far back it has to go before the slab splits
 
 export class Bulwark extends Encounter {
   constructor(x, y, wave) {
@@ -33,18 +34,37 @@ export class Bulwark extends Encounter {
   }
 
   static get title() { return 'THE BULWARK'; }
-  static get tagline() { return 'BREAK IT BEFORE IT LANDS'; }
+  static get tagline() { return 'SHOVE IT BACK, THEN BREAK IT'; }
+  static get coreHits() { return 3; }
   static get zoom() { return 0.84; }
   static get remnant() { return { glyph: '▣', hue: 32 }; }
 
-  get spent() { return this.spawned >= this.plateTotal && this.held.length === 0; }
-  get left() { return this.plateTotal - this.broken; }
-  get total() { return this.plateTotal; }
+  // The armour is the wall's own position. Break plates faster than it creeps
+  // and you drive it back; drive it back far enough and the slab splits.
+  // Answering is no longer a slow grind against a counter, it is a shoving
+  // match you can visibly be winning or losing.
+  get armour() { return clamp((this.y - (this.y0 - BREACH)) / BREACH, 0, 1); }
+  get spent() { return this.coreDone >= this.coreTotal; }
+  get left() { return this.coreTotal - this.coreDone; }
+  get total() { return this.coreTotal; }
 
+  // The plates keep coming: they are the threat, not the progress bar, so
+  // running out of them would end the pressure rather than the fight.
   _solved() {
     this.broken++;
     this.shove = PUSH;
     this.hitFlash = 1;
+  }
+
+  // Cracked. It surges back down to full height and starts closing again.
+  _cracked() { this.y = this.y0; this.shove = 0; }
+
+  _core() {
+    const a = randInt(2, 9), b = randInt(2, 9);
+    return {
+      prompt: `${a} × ${b}`, answer: a * b, concept: 'mult', a, b, op: '×',
+      mag: 60, hue: 32, size: 34, w: 170, h: 120,
+    };
   }
 
   _fight(dt, api) {
@@ -55,9 +75,9 @@ export class Bulwark extends Encounter {
       this.y -= step;
       this.shove -= step;
     }
-    this.y = Math.max(this.y0 - 60, this.y);
+    this.y = Math.max(this.y0 - BREACH, this.y);
 
-    while (this.held.length < SLOTS && this.spawned < this.plateTotal) {
+    while (this.held.filter((b) => !b.core).length < SLOTS) {
       const b = api.curriculum(this.x, this.y);
       if (!b) break;
       this.held.push(b);
@@ -68,11 +88,14 @@ export class Bulwark extends Encounter {
     // dome does its damage through the ordinary arrival path -- the plates
     // land, and landing is already something the game knows how to punish.
     const span = 190;
-    this.held.forEach((b, i) => {
-      const n = Math.max(1, this.held.length);
+    const plates = this.held.filter((b) => !b.core);
+    plates.forEach((b, i) => {
+      const n = Math.max(1, plates.length);
       b.x = this.x + (i - (n - 1) / 2) * span;
       b.y = this.y + Math.sin(this.t * 2 + i) * 4;
     });
+    // The core sits in the breach, above the slab.
+    if (this.coreBeast) { this.coreBeast.x = this.x; this.coreBeast.y = this.y - 96; }
   }
 
   _drawOpen(ctx) { super._drawOpen(ctx, 120); }

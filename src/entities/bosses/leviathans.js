@@ -167,36 +167,66 @@ export class Hydra extends Encounter {
 
 const ARM = 380;
 const LOAD = 0.115;           // tilt per second while it is out of balance
+const LEVEL = 0.14;           // how close to level counts as level
 
 export class Balance extends Encounter {
   constructor(x, y, wave) {
     super(x, y, wave);
     this.solveTotal = 5;
     this.solved = 0;
-    this.tilt = 0;              // -1 .. 1
+    // Starts tipped, not level. At zero the armour is already off on the first
+    // frame and the fight is over in two seconds.
+    this.tilt = 0.62;
     this.shown = 0;             // the tilt actually drawn, eased
     this.crushT = 0;
     this.side = 1;
   }
 
   static get title() { return 'THE BALANCE'; }
-  static get tagline() { return 'MAKE BOTH SIDES EQUAL'; }
+  static get tagline() { return 'HOLD IT LEVEL'; }
+  static get coreHits() { return 3; }
   static get zoom() { return 0.7; }
   static get originY() { return 290; }
   static get remnant() { return { glyph: '=', hue: 42 }; }
 
-  get spent() { return this.solved >= this.solveTotal; }
-  get left() { return this.solveTotal - this.solved; }
-  get total() { return this.solveTotal; }
+  // The armour is the tilt itself. Solving levels the beam, but it starts
+  // tipping again straight away -- so the goal is not "answer five things", it
+  // is "get it level and be quick enough that it is still level". Holding the
+  // horizon is what splits the fulcrum.
+  // Zero *inside* the level band, not asymptotically approaching it. Scaled
+  // against LEVEL the armour converged on 0.18 and never opened: each answer
+  // takes a bite out of the tilt while LOAD keeps adding, so the two settle at
+  // a small non-zero tilt. LEVEL already means "close enough counts as level";
+  // this is the armour agreeing with it.
+  get armour() {
+    const a = Math.abs(this.tilt);
+    return a <= LEVEL ? 0 : clamp((a - LEVEL) / (1 - LEVEL), 0, 1);
+  }
+  get spent() { return this.coreDone >= this.coreTotal; }
+  get left() { return this.coreTotal - this.coreDone; }
+  get total() { return this.coreTotal; }
   get pinned() { return Math.abs(this.tilt) >= 0.999; }
+
+  // Cracked: it heaves over and the shoving starts again from the far side.
+  _cracked() { this.tilt = this.side * 0.55; this.side = -this.side; }
+
+  _core(api) {
+    const eq = this._next(api);
+    this.rhs = eq.rhs;
+    return {
+      prompt: eq.lhs, hint: eq.hint, answer: eq.answer,
+      concept: 'equation', mag: 64, hue: 42, size: 34, w: 190, h: 130,
+    };
+  }
 
   _solved() {
     this.solved++;
     this.hitFlash = 1;
-    // Levelling is the reward, and it is immediate: the horizon comes back.
-    this.tilt = 0;
+    // Each answer takes a bite out of the tilt rather than zeroing it. Levelling
+    // it outright meant one solve stripped the armour and the whole fight was
+    // over in under two seconds -- the beam has to actually be wrestled level.
+    this.tilt *= 0.42;
     this.crushT = 0;
-    this.side = -this.side;
   }
 
   // The equations come from the tier's own curriculum -- a missing addend at
@@ -225,7 +255,9 @@ export class Balance extends Encounter {
       if (this.crushT > 1.6) { this.crushT = 0; api.hurt(); }
     }
 
-    if (!this.held.length && !this.spent) {
+    // Ordinary steps keep coming whatever the beat: they are how you level the
+    // beam, so sealing them would leave no way to take the armour off.
+    if (!this.held.filter((b) => !b.core).length && !this.spent) {
       const eq = this._next(api);
       this.rhs = eq.rhs;
       const b = api.demand({
@@ -239,9 +271,13 @@ export class Balance extends Encounter {
       this.held.push(b);
     }
 
-    // The expression rides the pan it is weighing down.
+    // The expression rides the pan it is weighing down; the core sits on the
+    // fulcrum, which is the thing you levelled to get at it.
     const p = this._pan(-1);
-    this.held.forEach((b) => { b.x = p.x; b.y = p.y + 54; });
+    for (const b of this.held) {
+      if (b.core) { b.x = this.x; b.y = this.y - 70; }
+      else { b.x = p.x; b.y = p.y + 54; }
+    }
   }
 
   _pan(side) {
