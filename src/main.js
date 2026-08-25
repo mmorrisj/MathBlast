@@ -54,6 +54,9 @@ const NOVA_IN = 0.85;      // and falling back into a point
 // than a door opening.
 const ARRIVE_Y = 96;
 const WARP = 0.42;
+// How much more urgent a beast has to be before the turret leaves the one it
+// is already aimed at. Progress runs 0..1, so this is a real margin, not a nudge.
+const STICKY = 0.09;
 
 class Game {
   constructor(canvas) {
@@ -1548,6 +1551,15 @@ class Game {
       else this.manualTargetId = null;
     }
     if (!target) {
+      // Hysteresis. Beasts sitting at the same height score almost identically,
+      // so the "most dangerous" one flipped between them several times a second
+      // -- and every flip rebuilds the answer list. On the Bulwark, whose four
+      // plates ride the wall at one height, that was 63 reshuffles in twenty
+      // seconds: the choices scrambled out from under the player before they
+      // could press one. A challenger now has to be meaningfully more urgent
+      // than the beast already being aimed at.
+      const held = this.targetBeast;
+      const holding = held && held.ready && !held.locked && !held.gone;
       for (const b of this.beasts) {
         // `ready`, not `alive`: a beast still closing from far off is not
         // answerable. Targeting reads the whole list, so without this a quick
@@ -1555,7 +1567,8 @@ class Game {
         // has finished arriving -- which is how they never saw one appear.
         if (!b.ready || b.locked) continue;
         // Bosses always take priority; otherwise the closest to doing damage.
-        const score = (b.isBoss ? 1000 : 0) + b.progress(this.shield);
+        const score = (b.isBoss ? 1000 : 0) + b.progress(this.shield)
+          + (holding && b === held ? STICKY : 0);
         if (!target || score > target._score) { target = b; target._score = score; }
       }
     }

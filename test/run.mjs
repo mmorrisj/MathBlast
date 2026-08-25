@@ -1683,6 +1683,53 @@ async function main() {
   check('an armoured boss reopens after every hit, not just the first',
         armoured.every((r) => r.opens >= 3), JSON.stringify(armoured));
 
+  // Reported as "the first boss jumps from problem to problem so the solutions
+  // scramble before the user can push their answer". Two causes, both about
+  // deriving a position from an array index.
+  const jitter = await state(() => {
+    const g = window.game;
+    const out = [];
+    for (const wave of [5, 10, 4]) {
+      g.state = 'title'; g.mode = 'tier'; g._begin();
+      g.wave = wave - 1; g.beasts = []; g._nextWave();
+      g._setInputMode('choose');
+      for (let f = 0; f < 120; f++) g.update(1 / 60);
+      let rebuilds = 0, jumps = 0;
+      let last = g.choices.join(',');
+      const seenX = new Map();
+      for (const b of g.beasts) seenX.set(b.id, b.x);
+      for (let f = 0; f < 60 * 20; f++) {
+        g.cores = 99;
+        g.update(1 / 60);
+        const c = g.choices.join(',');
+        if (c !== last) rebuilds++;
+        last = c;
+        for (const b of g.beasts) {
+          // A held problem teleporting sideways between frames.
+          if (b.attached && seenX.has(b.id) && Math.abs(b.x - seenX.get(b.id)) > 40) jumps++;
+          seenX.set(b.id, b.x);
+        }
+      }
+      out.push({ wave, boss: g.boss ? g.boss.title : 'none', rebuilds, jumps });
+    }
+    // Put the input mode back. In 'choose' the digit keys are swallowed by the
+    // pick-an-answer branch, so leaving it set breaks every later test that
+    // types into the answer box.
+    g._setInputMode('type');
+    g.state = 'title';
+    return out;
+  });
+  // The Bulwark measured 63 rebuilds in twenty seconds -- three a second --
+  // against two on an ordinary wave. Its four plates ride the wall at one
+  // height, so their danger scores were near-tied and the "most dangerous"
+  // flipped constantly; every flip rebuilds the answer list.
+  check('the answer list does not reshuffle under the player during a boss',
+        jitter.every((r) => r.rebuilds < 20), JSON.stringify(jitter));
+  // And nothing swaps places: position came from the array index, so solving
+  // one plate sent every survivor sliding into a different slot.
+  check('held problems keep their place when a neighbour is solved',
+        jitter.every((r) => r.jumps === 0), JSON.stringify(jitter));
+
   // The three with their own pressure take the armoured model, not a salvo.
   const noSalvo = await state(async () => {
     const M = await import('/src/entities/bosses/index.js');
