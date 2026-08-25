@@ -86,29 +86,33 @@ export class Kraken extends Encounter {
     // armour was zero on the first frame -- the core lay open before the boss
     // had a single arm to guard it, and the fight began already cracked. The
     // delay belongs to replacing a cut arm, not to arriving.
+    // Each arm keeps the third of the circle it was born into. Spacing them by
+    // array index meant losing one shunted the survivors round the orbit -- the
+    // problems physically swapped places mid-read.
+    const grow = () => {
+      const taken = new Set(this.arms.map((a) => a.slot));
+      let slot = 0;
+      while (taken.has(slot) && slot < 3) slot++;
+      const a = api.curriculum(this.x, 210);
+      if (!a) return false;
+      a.slot = slot;
+      this.held.push(a);
+      this.spawned++;
+      arms = this.arms;
+      return true;
+    };
     if (!this.seeded) {
-      while (arms.length < 3) {
-        const a = api.curriculum(this.x, 210);
-        if (!a) break;
-        this.held.push(a);
-        this.spawned++;
-        arms = this.arms;
-      }
+      while (arms.length < 3 && grow());
       this.seeded = true;
       this.regrow = REGROW;
     } else if (arms.length < 3 && this.regrow <= 0 && !this.openCore) {
-      const a = api.curriculum(this.x, 210);
-      if (a) {
-        this.held.push(a);
-        this.spawned++;
-        this.regrow = REGROW;
-        arms = this.arms;
-      }
+      if (grow()) this.regrow = REGROW;
     }
 
     // Hold the attached arms in orbit.
-    arms.forEach((a, i) => {
-      const ang = this.spin + (i / Math.max(1, arms.length)) * TAU;
+    arms.forEach((a) => {
+      const i = a.slot != null ? a.slot : 0;
+      const ang = this.spin + (i / 3) * TAU;
       const r = ORBIT + Math.sin(this.t * 1.3 + i) * 18;
       a.x = this.x + Math.cos(ang) * r;
       a.y = this.y + Math.sin(ang) * r * SQUASH;

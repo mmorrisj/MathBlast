@@ -77,23 +77,32 @@ export class Bulwark extends Encounter {
     }
     this.y = Math.max(this.y0 - BREACH, this.y);
 
-    while (this.held.filter((b) => !b.core).length < SLOTS) {
+    // Stable slots. Position used to come from the array index, so the moment
+    // one plate was solved and another appended, every remaining plate slid
+    // sideways into a different position -- the problems visibly swapped
+    // places under the player's cursor. A plate keeps the slot it was born
+    // into until it dies.
+    let plates = this.held.filter((b) => !b.core);
+    while (plates.length < SLOTS) {
+      const taken = new Set(plates.map((b) => b.slot));
+      let slot = 0;
+      while (taken.has(slot) && slot < SLOTS) slot++;
       const b = api.curriculum(this.x, this.y);
       if (!b) break;
+      b.slot = slot;
       this.held.push(b);
       this.spawned++;
+      plates = this.held.filter((x) => !x.core);
     }
 
     // Plates ride the wall. They descend with it, so a wall that reaches the
     // dome does its damage through the ordinary arrival path -- the plates
     // land, and landing is already something the game knows how to punish.
     const span = 190;
-    const plates = this.held.filter((b) => !b.core);
-    plates.forEach((b, i) => {
-      const n = Math.max(1, plates.length);
-      b.x = this.x + (i - (n - 1) / 2) * span;
-      b.y = this.y + Math.sin(this.t * 2 + i) * 4;
-    });
+    for (const b of plates) {
+      b.x = this.x + (b.slot - (SLOTS - 1) / 2) * span;
+      b.y = this.y + Math.sin(this.t * 2 + b.slot) * 4;
+    }
     // The core sits in the breach, above the slab.
     if (this.coreBeast) { this.coreBeast.x = this.x; this.coreBeast.y = this.y - 96; }
   }
