@@ -416,8 +416,12 @@ its own name, nebula strength and star tint, announced on the wave banner.
   redraws the problem and your input in full colour on top.
 - **Wave transitions are a beat**, not a banner: the camera pulls back,
   everything holds, and a clean wave gets a resolving chord and a repaired plate.
-- **The planet is a character** — city lights along the limb go dark a cluster at
-  a time as cores are lost, and beasts that get through leave permanent scars.
+- **The planet is a character** — shield coverage is how much of the world dares
+  turn its lights back on. Cities kindle one at a time as the dome is rebuilt,
+  each guttering like a cold tube before it holds, aurora ribbons thicken over
+  the limb, and every absorbed orb flares the cities under where it landed.
+  Cities go dark a cluster at a time as cores are lost, and beasts that get
+  through leave permanent scars.
 - **Overcharge** builds when you answer faster than your own rolling average,
   rewarding fluency rather than mere accuracy, and discharges as a column beam.
 

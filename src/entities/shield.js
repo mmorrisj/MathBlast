@@ -7,9 +7,12 @@
 //
 // The planet carries the other half of the story: city lights along the limb,
 // which go dark a cluster at a time as cores are lost, and permanent scars where
-// beasts got through.
+// beasts got through. They also answer the dome directly -- coverage decides how
+// many of them dare be lit at all, and aurora stands over the limb in proportion
+// -- so the reward for a clean wave is a world visibly coming back on rather
+// than a percentage in the corner.
 
-import { TAU, clamp, rand, lerp, easeOutElastic, easeOutCubic } from '../util.js';
+import { TAU, clamp, rand, lerp, damp, easeOutElastic, easeOutCubic } from '../util.js';
 import { theme } from '../theme.js';
 
 // Geometry chosen so the arc apex sits at y=570 and both ends reach y=700 at the
@@ -28,6 +31,17 @@ const ARC_HALF = (ARC_TO - ARC_FROM) / 2;
 // charge window for the beam itself.
 export const SURGE_LAND = 0.72;
 const LAND = SURGE_LAND;
+
+// The planet answers the dome. Coverage 0..1 is read as "how much of the world
+// dares turn its lights back on": cities kindle one at a time across that band,
+// each stuttering like a cold tube before it holds, and above them aurora
+// curtains thicken. It is the same number the HUD prints, spent on the one
+// thing the player is defending rather than on another gauge.
+const WAKE_LO = 0.04;         // coverage at which the first city relights
+const WAKE_HI = 0.86;         // coverage at which the last one does
+const SETTLE = 0.13;          // coverage travelled while a city is still guttering
+const KINDLE_R = 190;         // how far along the limb an absorbed orb is felt
+const CURTAINS = 6;           // aurora ribbons at full coverage
 
 export class Shield {
   constructor() {
@@ -63,10 +77,30 @@ export class Shield {
           depth: rand(1, 0.986),
           tw: rand(TAU),
           size: rand(2.2, 0.9),
+          wake: 0,
+          flare: 0,
         });
       }
     }
+    // Spread the relight thresholds evenly over the coverage band, then hand
+    // them out in a shuffled order: an ordered walk would light the limb like a
+    // progress bar wiping left to right, which is the one shape this must not
+    // be. Scattered, it reads as a world waking up.
+    const order = this.cities.map((_, i) => i);
+    for (let i = order.length - 1; i > 0; i--) {
+      const j = (Math.random() * (i + 1)) | 0;
+      [order[i], order[j]] = [order[j], order[i]];
+    }
+    order.forEach((c, i) => {
+      this.cities[c].wake = lerp(WAKE_LO, WAKE_HI, (i + rand(0.85, 0.15)) / order.length);
+    });
     this.darkGroups = 0;
+
+    // Coverage, but smoothed: plates land in steps and the planet should not.
+    this.lit = 0;
+    // Bumped every time energy actually reaches the dome, so absorbing an orb
+    // runs a swell through the atmosphere instead of only ticking a number.
+    this.pulse = 0;
 
     // 0..1 while the Kraken's finisher winds up: two fronts running inward
     // along the arc, gathering what the player built into the cannon.
@@ -113,7 +147,23 @@ export class Shield {
       touched.push(best);
       this.auroras.push({ angle: best.angle, t: 0, life: 0.9 });
     }
+    // Whether or not a plate had room for it, the energy arrived: a finished
+    // dome is the most-defended the world ever is, and it should not be the one
+    // state where nothing below it reacts.
+    this.kindle(x, 0.55);
     return touched;
+  }
+
+  // Light reaching the ground under `x`. The cities beneath a repaired stretch
+  // of dome flare, and the whole atmosphere swells a little.
+  kindle(x, strength = 1) {
+    this.pulse = Math.min(1.35, this.pulse + 0.3 * strength);
+    for (const c of this.cities) {
+      if (c.group < this.darkGroups) continue;
+      const cx = CX + Math.cos(c.angle) * R_SURFACE;
+      const near = 1 - clamp(Math.abs(cx - x) / KINDLE_R, 0, 1);
+      if (near > 0) c.flare = Math.min(1, c.flare + near * strength);
+    }
   }
 
   crackPlate(nearX) {
@@ -147,6 +197,7 @@ export class Shield {
     best.pop = 1;
     best.glow = 1;
     this.auroras.push({ angle: best.angle, t: 0, life: 1.2 });
+    this.kindle(best.x, 1);
     return best;
   }
 
@@ -172,6 +223,19 @@ export class Shield {
   get intact() { return this.plates.reduce((s, p) => s + p.integrity, 0); }
   get coverage() { return this.intact / this.count; }
 
+  // How much of the world has its lights on, and how many aurora ribbons stand
+  // over it. Both are read by the draw, and both are the honest answer to "is
+  // the planet actually responding to the dome" without sampling pixels.
+  get awake() { return this.cities.filter((c) => this.woke(c) > 0).length; }
+
+  // 0 dark, 1 burning steady, in between still guttering on.
+  woke(c, lit = this.lit) {
+    if (c.group < this.darkGroups) return 0;
+    return clamp((lit - c.wake) / SETTLE, 0, 1);
+  }
+
+  get curtains() { return Math.round(clamp(this.lit, 0, 1) * CURTAINS); }
+
   // Drive the surge from outside -- main owns the charge ramp. Plates flare as
   // the front crosses them, so the shot is visibly made of the dome and a
   // half-built dome sends a thinner one.
@@ -192,6 +256,15 @@ export class Shield {
   update(dt) {
     this.t += dt;
     this.flash = Math.max(0, this.flash - dt * 2.4);
+    // Chase coverage rather than snapping to it, so a plate completing reads as
+    // the planet drawing breath. Losing the dome falls faster than building it
+    // rises -- the lights going out should be the more alarming half.
+    const cov = this.coverage;
+    this.lit = damp(this.lit, cov, cov < this.lit ? 3.4 : 1.5, dt);
+    this.pulse = Math.max(0, this.pulse - dt * 1.5);
+    for (const c of this.cities) {
+      if (c.flare > 0) c.flare = Math.max(0, c.flare - dt * 1.25);
+    }
     for (const p of this.plates) {
       if (p.pop > 0) p.pop = Math.max(0, p.pop - dt * 2.6);
       if (p.crack > 0) p.crack = Math.max(0, p.crack - dt * 1.8);
@@ -206,8 +279,10 @@ export class Shield {
     }
   }
 
-  draw(ctx) {
-    this._drawPlanet(ctx);
+  // `density` is the quality tier's effects scale -- the aurora is the first
+  // thing a slow machine should lose, and the last thing it needs.
+  draw(ctx, density = 1) {
+    this._drawPlanet(ctx, density);
     this._drawArc(ctx);
     this._drawAurora(ctx);
     for (const p of this.plates) this._drawPlate(ctx, p);
@@ -271,7 +346,13 @@ export class Shield {
     ctx.restore();
   }
 
-  _drawPlanet(ctx) {
+  _drawPlanet(ctx, density = 1) {
+    // How awake the world is. The pulse rides on top so each absorbed orb is a
+    // swell, not a step, and it is allowed past 1 -- a busy dome overdrives the
+    // atmosphere for a second, which is exactly the moment worth watching.
+    const lit = clamp(this.lit + this.pulse * 0.22, 0, 1.12);
+    const calm = theme.reducedMotion ? 0.22 : 1;
+
     ctx.save();
     if (!this._body) {
       const g = ctx.createRadialGradient(CX - 200, CY - R_SURFACE - 40, 40, CX, CY, R_SURFACE * 1.05);
@@ -286,33 +367,164 @@ export class Shield {
     ctx.fill();
 
     ctx.globalCompositeOperation = 'lighter';
-    const rim = ctx.createRadialGradient(CX, CY, R_SURFACE - 26, CX, CY, R_SURFACE + 18);
+    // The atmosphere thickens as the dome does: brighter, and reaching further
+    // off the limb, so the planet has a halo worth protecting by the end.
+    const reach = 18 + lit * 26;
+    const rim = ctx.createRadialGradient(CX, CY, R_SURFACE - 26, CX, CY, R_SURFACE + reach);
     rim.addColorStop(0, `hsla(${theme.friendly + 10}, 100%, 60%, 0)`);
-    rim.addColorStop(0.7, `hsla(${theme.friendly + 6}, 100%, 62%, 0.28)`);
+    rim.addColorStop(0.7, `hsla(${theme.friendly + 6}, 100%, ${62 + lit * 8}%, ${0.28 + lit * 0.22})`);
     rim.addColorStop(1, `hsla(${theme.friendly + 6}, 100%, 70%, 0)`);
     ctx.fillStyle = rim;
     ctx.beginPath();
-    ctx.arc(CX, CY, R_SURFACE + 20, 0, TAU);
+    ctx.arc(CX, CY, R_SURFACE + reach + 2, 0, TAU);
     ctx.fill();
 
+    this._drawCurtains(ctx, lit, density, calm);
+
     // City lights. A darkened group leaves a cold ember behind, not nothing --
-    // the lights went out, the city is still there.
+    // the lights went out, the city is still there. An unwoken one is the same
+    // ember for the opposite reason: nobody has dared switch it on yet.
     for (const c of this.cities) {
-      const dark = c.group < this.darkGroups;
       const r = R_SURFACE * c.depth;
       const x = CX + Math.cos(c.angle) * r;
       const y = CY + Math.sin(c.angle) * r;
-      const tw = 0.6 + Math.sin(this.t * 1.8 + c.tw) * 0.4;
-      ctx.fillStyle = dark
-        ? `hsla(18, 60%, 40%, ${0.1 + tw * 0.06})`
-        : `hsla(46, 100%, 78%, ${0.35 + tw * 0.5})`;
+      // 0 asleep, 1 burning steady. In between it is coming on.
+      const woke = this.woke(c, lit);
+      if (woke <= 0) {
+        // Two ways to be dark, and they should not look alike: a city whose
+        // core was lost is a burnt ember, a city that has not dared switch on
+        // yet is cold. Same dimness, opposite stories.
+        const lost = c.group < this.darkGroups;
+        const dim = 0.1 + (0.6 + Math.sin(this.t * 1.8 * calm + c.tw) * 0.4) * 0.06;
+        ctx.fillStyle = lost ? `hsla(18, 60%, 40%, ${dim})` : `hsla(214, 24%, 52%, ${dim * 0.75})`;
+        ctx.beginPath();
+        ctx.arc(x, y, c.size * 0.7, 0, TAU);
+        ctx.fill();
+        continue;
+      }
+
+      // Two twinkles rather than one: the slow breath every light has always
+      // had, plus a faster shimmer that only shows up on a well-defended world.
+      const tw = 0.6 + Math.sin(this.t * 1.8 * calm + c.tw) * 0.4
+        + Math.sin(this.t * 4.3 * calm + c.tw * 2.1) * 0.16 * lit;
+      // The guttering. A tube that has just been switched on after a long dark
+      // stutters before it holds, and the stutter dies out as the dome grows
+      // past the threshold that woke it.
+      const gutter = lerp(
+        0.3 + 0.7 * (0.5 + 0.5 * Math.sin(this.t * (17 + c.tw * 8) * calm + c.tw * 5)) ** 3,
+        1,
+        woke,
+      );
+      const bright = clamp((0.4 + tw * 0.55) * gutter + c.flare * 0.7, 0, 1.4);
+      // Sodium, and it stays sodium. An earlier pass lerped the hue toward the
+      // dome's cyan as coverage rose and spent the whole middle of the run
+      // passing through green, which reads as a fault, not as prosperity. The
+      // cool light belongs above the cities, in the aurora, not in them.
+      const hue = 46 + lit * 5;
+      ctx.fillStyle = `hsla(${hue}, 100%, ${76 + lit * 10 + c.flare * 14}%, ${bright})`;
       ctx.beginPath();
-      ctx.arc(x, y, c.size * (dark ? 0.7 : 1), 0, TAU);
+      ctx.arc(x, y, c.size * (0.8 + woke * 0.3 + lit * 0.2 + c.flare * 0.6), 0, TAU);
       ctx.fill();
+
+      // A halo on the brightest of them, from a cached sprite: forty-eight
+      // gradients a frame is not worth it, and forty-eight flat discs read as
+      // grey coins rather than as light.
+      const halo = (bright - 0.55) * lit * density;
+      if (halo > 0.02) {
+        const hr = c.size * (5 + lit * 5 + c.flare * 7);
+        ctx.globalAlpha = clamp(halo * 1.15, 0, 1);
+        ctx.drawImage(this._glow(), x - hr, y - hr, hr * 2, hr * 2);
+        ctx.globalAlpha = 1;
+      }
     }
     ctx.restore();
 
     for (const s of this.scars) this._drawScar(ctx, s);
+  }
+
+  // One soft warm dot, drawn once and reused for every city halo.
+  _glow() {
+    if (this._glowSprite) return this._glowSprite;
+    const c = document.createElement('canvas');
+    c.width = c.height = 64;
+    const g = c.getContext('2d');
+    const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grad.addColorStop(0, 'hsla(48, 100%, 86%, 0.95)');
+    grad.addColorStop(0.22, 'hsla(46, 100%, 72%, 0.5)');
+    grad.addColorStop(0.5, 'hsla(42, 100%, 64%, 0.17)');
+    grad.addColorStop(1, 'hsla(38, 100%, 58%, 0)');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 64, 64);
+    this._glowSprite = c;
+    return c;
+  }
+
+  // Aurora over the limb: ribbons standing off the surface, waving, one more of
+  // them for every sixth of the dome rebuilt. They are drawn under the plates
+  // and over the planet, which is where an aurora belongs -- between the world
+  // and the thing shielding it.
+  _drawCurtains(ctx, lit, density, calm) {
+    const n = Math.round(this.curtains * density);
+    if (n <= 0) return;
+    const SAMPLES = 16;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < n; i++) {
+      // Golden-angle phases so no two ribbons ever fall into step.
+      const ph = i * 2.399;
+      const slide = Math.sin(this.t * (0.11 + i * 0.017) * calm + ph);
+      // Each ribbon owns a stretch of the limb and only wanders inside it.
+      // Letting the drift place them outright piled them all at one end
+      // whenever their phases happened to agree -- and under reduced motion,
+      // where the drift barely moves, that pile was permanent.
+      const home = ((i + 0.5) / n) * 2 - 1;
+      const mid = ARC_MID + (home * 0.72 + slide * 0.26) * ARC_HALF;
+      const half = 0.085 + 0.05 * Math.sin(this.t * 0.31 * calm + ph * 1.7);
+      const tall = (62 + i * 17) * (0.5 + lit * 0.7);
+      const shimmer = 0.4 + 0.6 * (0.5 + 0.5 * Math.sin(this.t * (1.3 + i * 0.37) * calm + ph * 3));
+      const alpha = lit ** 1.5 * 0.28 * shimmer * (1 - i / (CURTAINS + 2));
+      if (alpha < 0.004) continue;
+
+      // Each ribbon starts a little bluer than the dome and the stack walks on
+      // into violet, so the aurora is weather over the planet rather than a
+      // second, blurrier shield drawn in the shield's own colour.
+      const hue = theme.friendly + 16 + i * 12;
+      // Two passes: the broad veil, then a brighter fold drifting along inside
+      // it. One flat wedge reads as fog; the fold is what makes it a curtain.
+      // Only the front ribbons earn the second pass -- behind those the fold is
+      // under a tenth of an alpha and nobody can see it.
+      for (let pass = 0; pass < (i < 3 ? 2 : 1); pass++) {
+        const wide = pass ? half * 0.3 : half;
+        const high = pass ? tall * 0.82 : tall;
+        const at = pass ? mid + Math.sin(this.t * 0.53 * calm + ph * 2.3) * half * 0.5 : mid;
+        const a2 = pass ? alpha * 1.35 : alpha;
+
+        const g = ctx.createRadialGradient(CX, CY, R_SURFACE - 6, CX, CY, R_SURFACE + high);
+        g.addColorStop(0, `hsla(${hue}, 100%, 70%, 0)`);
+        g.addColorStop(0.3, `hsla(${hue}, 100%, ${pass ? 82 : 72}%, ${a2})`);
+        g.addColorStop(0.62, `hsla(${hue + 16}, 100%, 66%, ${a2 * 0.55})`);
+        g.addColorStop(1, `hsla(${hue + 24}, 100%, 62%, 0)`);
+        ctx.fillStyle = g;
+
+        ctx.beginPath();
+        // Up the outer edge, which ripples along its length and tapers at both
+        // ends, then back along the surface.
+        for (let s = 0; s <= SAMPLES; s++) {
+          const f = s / SAMPLES;
+          const a = at + lerp(-wide, wide, f);
+          const taper = Math.sin(f * Math.PI) ** 0.7;
+          const wave = 0.6 + 0.4 * Math.sin(f * 9 + this.t * 1.1 * calm + ph * 2);
+          const r = R_SURFACE + high * taper * wave;
+          const px = CX + Math.cos(a) * r;
+          const py = CY + Math.sin(a) * r;
+          s ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+        }
+        ctx.arc(CX, CY, R_SURFACE - 6, at + wide, at - wide, true);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+    ctx.restore();
   }
 
   _drawScar(ctx, s) {
