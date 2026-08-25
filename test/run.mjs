@@ -1560,6 +1560,89 @@ async function main() {
         ledger.yesterdayRun === 3 && ledger.acrossGap === 3 && ledger.stale === 0);
   check('the day log is capped', ledger.kept === 120 && ledger.recentLen === 30);
 
+  // --- boss volleys ----------------------------------------------------------
+  //
+  // Reported as "some of the bosses don't seem to do anything but float, with
+  // no penalty or weapon shots". Measuring it: left alone for sixty seconds,
+  // seven of the ten cost nothing at all -- the Twins, Hydra, Remainder,
+  // Cipher, Prism, Nought and Echo moved nothing toward the planet and would
+  // have waited for ever. They were puzzle screens with a boss drawn behind.
+  const volley = await state(() => {
+    const g = window.game;
+    const out = [];
+    for (const wave of [5, 10, 15, 20, 25, 30, 35, 40, 45, 50]) {
+      g.state = 'title'; g.mode = 'tier'; g._begin();
+      g.wave = wave - 1; g.beasts = []; g._nextWave();
+      const title = g.boss ? g.boss.title : '?';
+      const cores0 = g.cores;
+      const misses0 = g.waveMisses;
+      const cov = () => g.shield.plates.reduce((n, p) => n + p.integrity, 0);
+      const cov0 = cov();
+      // Do nothing whatsoever.
+      for (let f = 0; f < 60 * 60; f++) g.update(1 / 60);
+      out.push({
+        wave, title,
+        hurt: (cores0 - g.cores) > 0 || (g.waveMisses - misses0) > 0 || cov() < cov0 - 0.5,
+      });
+    }
+    g.state = 'title';
+    return out;
+  });
+  check('every boss can hurt a player who does nothing',
+        volley.length === 10 && volley.every((r) => r.hurt),
+        JSON.stringify(volley.filter((r) => !r.hurt)));
+
+  // The rhythm: a salvo in the air seals the core, clearing it opens a window,
+  // and the window closing fires the next salvo.
+  const beat = await state(() => {
+    const g = window.game;
+    g.state = 'title'; g.mode = 'tier'; g._begin();
+    g.wave = 39; g.beasts = []; g._nextWave();       // the Prism, salvo of 3
+    const b = g.boss;
+    const seen = new Set();
+    let sealedWhileIncoming = true;
+    let openWithMissiles = false;
+    let fired = 0, wasSalvo = false;
+    let answerableWhileSealed = 0;
+    for (let f = 0; f < 60 * 40; f++) {
+      g.update(1 / 60);
+      if (!g.boss) break;
+      seen.add(b.beat);
+      if (b.beat === 'salvo' && !wasSalvo) fired++;
+      wasSalvo = b.beat === 'salvo';
+      const held = b.held || [];
+      if (!b.openCore && held.some((x) => x.ready)) answerableWhileSealed++;
+      if (b.beat === 'salvo' && held.some((x) => !x.sealed)) sealedWhileIncoming = false;
+      if (b.openCore && b.missiles.length > 0) openWithMissiles = true;
+    }
+    return {
+      phases: [...seen].sort(), fired,
+      sealedWhileIncoming, openWithMissiles, answerableWhileSealed,
+      salvoSize: b.salvoSize,
+    };
+  });
+  check('a boss alternates between firing and opening',
+        JSON.stringify(beat.phases) === '["open","salvo"]' && beat.fired >= 2,
+        JSON.stringify(beat));
+  check('its core is sealed while its own salvo is still in the air',
+        beat.sealedWhileIncoming && !beat.openWithMissiles &&
+        beat.answerableWhileSealed === 0, JSON.stringify(beat));
+
+  // The four that already had pressure keep it, and do not get a second
+  // system stacked on top -- the Bulwark's wall, the Kraken's arms and the
+  // Balance's tilt are threats already.
+  const noSalvo = await state(async () => {
+    const M = await import('/src/entities/bosses/index.js');
+    return {
+      bulwark: M.Bulwark.salvo, kraken: M.Kraken.salvo, balance: M.Balance.salvo,
+      hydra: M.Hydra.salvo, echo: M.Echo.salvo, prism: M.Prism.salvo,
+    };
+  });
+  check('bosses that already apply pressure do not also fire salvos',
+        noSalvo.bulwark === 0 && noSalvo.kraken === 0 && noSalvo.balance === 0 &&
+        noSalvo.hydra > 0 && noSalvo.echo > 0 && noSalvo.prism > 0,
+        JSON.stringify(noSalvo));
+
   // --- arrivals ---------------------------------------------------------------
   //
   // Reported as "the aliens float into view -- if the user is quick they never
