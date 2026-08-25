@@ -16,7 +16,7 @@
 // makes the whole encounter cheap: the Kraken knows nothing about difficulty
 // tiers, the adaptive plan, or scoring.
 
-import { TAU, clamp } from '../../util.js';
+import { TAU, clamp, randInt } from '../../util.js';
 import { Encounter } from './base.js';
 
 const CORE_R = 140;
@@ -24,6 +24,7 @@ const ORBIT = 330;
 const SQUASH = 0.5;           // flatten the orbit, or arms ride up under the HUD
 const WIND_UP = 1.1;          // seconds of telegraph before an arm lets go
 const LAUNCH_SPEED = 150;     // px/s -- about 2.6s from the core to the dome
+const REGROW = 2.6;           // pause before a cut arm is replaced
 
 export class Kraken extends Encounter {
   constructor(x, y, wave, arms) {
@@ -39,20 +40,35 @@ export class Kraken extends Encounter {
   }
 
   static get title() { return 'THE KRAKEN'; }
-  static get tagline() { return 'CUT THE ARMS'; }
+  static get tagline() { return 'CLEAR THE ORBIT'; }
+  static get coreHits() { return 3; }
   static get zoom() { return 0.74; }
   static get originY() { return 300; }
   static get remnant() { return { glyph: '∞', hue: 188 }; }
 
-  // Keyed on arms *grown*, not arms fired: otherwise destroying one in orbit
-  // just made room for a replacement and the fight never advanced, which
-  // punished the player for being quick.
-  get spent() { return this.spawned >= this.armTotal && this.held.length === 0; }
-  get left() { return this.armTotal - this.spawned + this.held.length; }
-  get total() { return this.armTotal; }
+  // The arms *are* the armour. Kill them one at a time and a replacement grows
+  // into the gap; empty the orbit and the core is bare. That turns a grind
+  // down a counter into a real tactical goal -- burn the orbit down faster
+  // than it refills -- and it is the same shape as the encounter's own art.
+  get armour() { return clamp(this.arms.length / 3, 0, 1); }
+  get spent() { return this.coreDone >= this.coreTotal; }
+  get left() { return this.coreTotal - this.coreDone; }
+  get total() { return this.coreTotal; }
 
-  // Kept for the code and tests that read the Kraken's arms by name.
-  get arms() { return this.held; }
+  // Kept for the code and tests that read the Kraken's arms by name. The core
+  // problem is held too but is not an arm.
+  get arms() { return this.held.filter((b) => !b.core); }
+
+  // Cracked: the orbit floods back in and it starts again.
+  _cracked() { this.regrow = 0.5; }
+
+  _core() {
+    const a = randInt(3, 12), b = randInt(3, 12);
+    return {
+      prompt: `${a} × ${b}`, answer: a * b, concept: 'mult', a, b, op: '×',
+      mag: 70, hue: this.hue, size: 36, w: 180, h: 130,
+    };
+  }
 
   _fight(dt, api) {
     this.spin = (this.spin || 0) + dt * 0.42;
@@ -61,30 +77,52 @@ export class Kraken extends Encounter {
     // Drift so it is never quite still.
     this.x += Math.sin(this.t * 0.5 + this.drift) * 14 * dt;
 
-    // Keep the orbit full while there are arms left to grow.
-    const want = Math.min(3, this.armTotal - this.spawned);
-    while (this.held.length < want) {
+    // Keep the orbit full -- but not instantly. The regrow delay is what makes
+    // emptying it possible at all: without it a killed arm is replaced the same
+    // frame and the orbit is never bare.
+    this.regrow = Math.max(0, (this.regrow || 0) - dt);
+    let arms = this.arms;
+    // The orbit starts full. Filling it one arm at a time from empty meant the
+    // armour was zero on the first frame -- the core lay open before the boss
+    // had a single arm to guard it, and the fight began already cracked. The
+    // delay belongs to replacing a cut arm, not to arriving.
+    if (!this.seeded) {
+      while (arms.length < 3) {
+        const a = api.curriculum(this.x, 210);
+        if (!a) break;
+        this.held.push(a);
+        this.spawned++;
+        arms = this.arms;
+      }
+      this.seeded = true;
+      this.regrow = REGROW;
+    } else if (arms.length < 3 && this.regrow <= 0 && !this.openCore) {
       const a = api.curriculum(this.x, 210);
-      if (!a) break;
-      this.held.push(a);
-      this.spawned++;
+      if (a) {
+        this.held.push(a);
+        this.spawned++;
+        this.regrow = REGROW;
+        arms = this.arms;
+      }
     }
 
     // Hold the attached arms in orbit.
-    this.held.forEach((a, i) => {
-      const ang = this.spin + (i / Math.max(1, this.held.length)) * TAU;
+    arms.forEach((a, i) => {
+      const ang = this.spin + (i / Math.max(1, arms.length)) * TAU;
       const r = ORBIT + Math.sin(this.t * 1.3 + i) * 18;
       a.x = this.x + Math.cos(ang) * r;
       a.y = this.y + Math.sin(ang) * r * SQUASH;
       a.orbitAngle = ang;
     });
+    // The core hangs at the centre, where the arms were guarding.
+    if (this.coreBeast) { this.coreBeast.x = this.x; this.coreBeast.y = this.y; }
 
     this.fireTimer -= dt;
     // A wind-up before it lets go. Without one the first warning is the arm
     // already halfway to the planet, and 2.6 seconds of flight is not a
     // question, it is a coin toss.
-    if (!this.charging && this.fireTimer <= WIND_UP && this.held.length) {
-      this.charging = this.held.reduce((lo, a) => (a.y > lo.y ? a : lo), this.held[0]);
+    if (!this.charging && this.fireTimer <= WIND_UP && arms.length) {
+      this.charging = arms.reduce((lo, a) => (a.y > lo.y ? a : lo), arms[0]);
       this.chargeT = 0;
     }
     if (this.charging) {
@@ -110,7 +148,7 @@ export class Kraken extends Encounter {
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
     ctx.lineCap = 'round';
-    for (const a of this.held) {
+    for (const a of this.arms) {
       const ang = a.orbitAngle != null ? a.orbitAngle : 0;
       const len = Math.hypot(a.x - this.x, a.y - this.y);
       const steps = 16;

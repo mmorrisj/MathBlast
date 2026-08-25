@@ -93,7 +93,12 @@ async function main() {
   };
 
   const blast = async () => {
-    await page.waitForFunction(() => window.game.shockwaves.list.length > 0, null, { timeout: 3000 });
+    // Wait for the orbs, not just a ring. Arrivals emit a shockwave of their
+    // own now, so "a ring exists" no longer means "something was just killed"
+    // -- the helper could sample an arrival and read zero orbs.
+    await page.waitForFunction(
+      () => window.game.orbs.count > 0 && window.game.shockwaves.list.length > 0,
+      null, { timeout: 3000 });
     return state(() => ({
       rings: window.game.shockwaves.list.length,
       rMax: Math.round(Math.max(...window.game.shockwaves.list.map((s) => s.rMax))),
@@ -947,7 +952,9 @@ async function main() {
       clearInterval(tick);
       resolve({ kinds: [...kinds], bosses: [...bosses], wave: g.wave, state: g.state });
     }
-    setTimeout(done, 70000);
+    // Bosses are fights rather than floats now -- the Bulwark alone takes
+    // three core hits -- so crossing one costs real time.
+    setTimeout(done, 130000);
   }));
   check('a real run reaches wave 7 through every beast type, and past a boss',
         soak.wave >= 7 && soak.kinds.length >= 4 && soak.bosses.includes('THE BULWARK'),
@@ -1360,13 +1367,13 @@ async function main() {
     // ledger has to see them like anything else.
     const armsOk = g.beasts.every((b) => b.accepts(b.answerText));
 
-    // Clearing arms has to advance the fight. Keyed on launches rather than on
-    // arms grown, destroying one in orbit only made room for a replacement and
-    // the encounter never ended -- punishing the player for being quick.
+    // Emptying the orbit is what opens the core. Arms regrow into the gaps, so
+    // the goal is to burn all three down faster than they come back -- not to
+    // grind a counter. Keyed on core hits landed rather than arms destroyed.
     const before = g.boss.left;
     let guard = 0;
-    while (g.boss && g.boss.phase === 'fight' && guard++ < 60 * 60) {
-      const t = g.beasts.find((b) => b.alive && !b.locked);
+    while (g.boss && g.boss.phase === 'fight' && guard++ < 60 * 90) {
+      const t = g.beasts.find((b) => b.ready && !b.locked);
       if (t) { g.targetBeast = t; g._fire(t.answerText); }
       g.update(1 / 60);
     }
@@ -1395,8 +1402,9 @@ async function main() {
         kraken.started.phase === 'boss' && kraken.started.has &&
         kraken.opened.zoom < 0.8 && kraken.opened.slowmo < 0.01);
   check('its arms are ordinary problems that answer themselves', kraken.armsOk);
-  check('clearing arms advances the fight instead of growing replacements',
-        kraken.before > 0 && kraken.cleared.left === 0 && kraken.cleared.phase !== 'fight');
+  check('emptying the orbit opens the core, and core hits end the fight',
+        kraken.before > 0 && kraken.cleared.left === 0 && kraken.cleared.phase !== 'fight',
+        JSON.stringify(kraken.cleared));
   check('the finishing shot fires exactly once',
         kraken.blasts === 1 && kraken.gain < 20000);
   check('the encounter ends and hands the wave back',
@@ -1628,19 +1636,72 @@ async function main() {
         beat.sealedWhileIncoming && !beat.openWithMissiles &&
         beat.answerableWhileSealed === 0, JSON.stringify(beat));
 
-  // The four that already had pressure keep it, and do not get a second
-  // system stacked on top -- the Bulwark's wall, the Kraken's arms and the
-  // Balance's tilt are threats already.
+  // The three with their own pressure wear armour instead of firing salvos.
+  // Ambient threat alone is shapeless -- the wall creeps, the arms launch, the
+  // beam tips, and the player answers things without aiming at anything. Each
+  // now has a core that only unlocks the way that boss is about.
+  const armoured = await state(() => {
+    const g = window.game;
+    const out = [];
+    for (const wave of [5, 10, 30]) {
+      g.state = 'title'; g.mode = 'tier'; g._begin();
+      g.wave = wave - 1; g.beasts = []; g._nextWave();
+      const b = g.boss;
+      let opens = 0, wasOpen = false, minArm = 1, sawArmour = false, f = 0;
+      for (; f < 60 * 150; f++) {
+        g.cores = 99;
+        const t = g.beasts.find((x) => x.ready && !x.locked);
+        if (t) { g.targetBeast = t; g._fire(t.answerText); }
+        g.update(1 / 60);
+        if (!g.boss) break;
+        if (g.boss.armour > 0.5) sawArmour = true;
+        minArm = Math.min(minArm, g.boss.armour);
+        if (g.boss.openCore && !wasOpen) opens++;
+        wasOpen = g.boss.openCore;
+        if (g.boss.phase !== 'fight') break;
+      }
+      out.push({
+        wave, title: b.title, opens, hits: b.coreDone, need: b.coreTotal,
+        minArm: +minArm.toFixed(2), sawArmour,
+        phase: g.boss ? g.boss.phase : 'gone', secs: +(f / 60).toFixed(1),
+      });
+    }
+    g.state = 'title';
+    return out;
+  });
+  check('each armoured boss unlocks its core and is beaten through it',
+        armoured.length === 3 &&
+        armoured.every((r) => r.hits === r.need && r.opens === r.need &&
+                              r.phase === 'exposed'),
+        JSON.stringify(armoured));
+  check('the armour is really worn, and really comes off',
+        armoured.every((r) => r.sawArmour && r.minArm === 0),
+        JSON.stringify(armoured));
+  // The Kraken deadlocked here: its armour is arms in orbit and the player is
+  // busy killing them, so latching the core shut until the orbit was full
+  // again meant it never reopened after the first hit.
+  check('an armoured boss reopens after every hit, not just the first',
+        armoured.every((r) => r.opens >= 3), JSON.stringify(armoured));
+
+  // The three with their own pressure take the armoured model, not a salvo.
   const noSalvo = await state(async () => {
     const M = await import('/src/entities/bosses/index.js');
     return {
       bulwark: M.Bulwark.salvo, kraken: M.Kraken.salvo, balance: M.Balance.salvo,
       hydra: M.Hydra.salvo, echo: M.Echo.salvo, prism: M.Prism.salvo,
+      coreBulwark: M.Bulwark.coreHits, coreKraken: M.Kraken.coreHits,
+      coreBalance: M.Balance.coreHits, coreHydra: M.Hydra.coreHits,
+      corePrism: M.Prism.coreHits,
     };
   });
   check('bosses that already apply pressure do not also fire salvos',
         noSalvo.bulwark === 0 && noSalvo.kraken === 0 && noSalvo.balance === 0 &&
         noSalvo.hydra > 0 && noSalvo.echo > 0 && noSalvo.prism > 0,
+        JSON.stringify(noSalvo));
+  check('and every boss uses exactly one of the two models',
+        [['bulwark', 0], ['kraken', 0], ['balance', 0]].every(([k]) => noSalvo[k] === 0) &&
+        noSalvo.coreBulwark > 0 && noSalvo.coreKraken > 0 && noSalvo.coreBalance > 0 &&
+        noSalvo.coreHydra === 0 && noSalvo.corePrism === 0,
         JSON.stringify(noSalvo));
 
   // --- arrivals ---------------------------------------------------------------

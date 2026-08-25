@@ -21,6 +21,7 @@ export const CHARGE = 1.15;     // the turret winding up; the surge is paced to 
 const FIRST_SALVO = 2.2;        // a beat to read the board before the first one
 const OPEN = 7.5;               // how long the core stays answerable
 const MISSILE = 118;            // px/s -- fast enough to matter, slow enough to solve
+const REARM = 3;                // seconds the core stays shut after a hit
 
 export class Encounter {
   constructor(x, y, wave) {
@@ -50,9 +51,12 @@ export class Encounter {
     // sealed and its own problem cannot be answered -- deal with the incoming
     // first. Clear the salvo and the core opens for a window, and *that* is
     // when the boss itself is solvable. Fight, breathe, fight.
-    this.beat = 'open';         // 'salvo' | 'open'
+    this.beat = 'open';         // 'salvo' | 'open' | 'sealed'
     this.beatT = FIRST_SALVO;   // a moment to read the board before the first
     this.missiles = [];
+    this.coreDone = 0;          // armoured bosses: core hits landed
+    this.coreBeast = null;
+    this.rearm = 0;
   }
 
   // --- what the game asks of every encounter -----------------------------
@@ -132,7 +136,37 @@ export class Encounter {
     // hands the subclass the pre-filter array, so the Twins -- which decide
     // what happened by how many siblings are left standing -- always saw two,
     // never cleared a pair, and regenerated for ever.
-    for (const b of solved) this._solved(b);
+    for (const b of solved) {
+      // A core hit belongs to the base: it is the same event on every armoured
+      // boss, and the subclass has no business counting it.
+      if (b.core) {
+        this.coreDone++;
+        this.hitFlash = 1;
+        this.beat = 'sealed';
+        this.coreBeast = null;
+        // Shut for a beat after a hit. The Kraken cracks with an empty orbit,
+        // so `armour` is still zero the next frame and it would offer another
+        // core immediately -- a thousand hits a minute rather than three.
+        //
+        // A timer, not "wait for full armour": the Kraken's armour is arms in
+        // orbit and the player is busy killing them, so waiting for a full
+        // orbit deadlocked it after the first hit and it never opened again.
+        this.rearm = REARM;
+        this._cracked();
+      } else {
+        this._solved(b);
+      }
+    }
+    // Spent: stop fighting. The threat used to be the progress bar, so it ran
+    // out on its own; now it keeps coming for ever, and main will not lay a
+    // core open until the field is clear. Without this an armoured boss takes
+    // its three hits and then fights on, unkillable, behind its own plates.
+    if (this.spent) {
+      for (const b of this.held) { b.attached = false; b.state = 'dead'; }
+      this.held = [];
+      this.coreBeast = null;
+      return;
+    }
     this._volley(dt, api);
     this._fight(dt, api);
   }
@@ -147,12 +181,32 @@ export class Encounter {
   // One of this encounter's own demands was answered correctly.
   _solved() {}
 
-  // How many problems this boss throws per salvo. Zero for the ones that
+  // The core took a hit. Armoured bosses use it to put their armour back on.
+  _cracked() {}
+
+  // How many problems this boss throws per salvo. Zero for the three that
   // already bring their own pressure -- the Bulwark's wall is always closing,
   // the Kraken's arms launch themselves, the Balance tips onto the dome -- and
   // stacking a second threat on top of a working one just makes them noisy.
   static get salvo() { return 0; }
   get salvoSize() { return this.constructor.salvo; }
+
+  // The armoured model, for those three.
+  //
+  // Ambient pressure on its own is shapeless: the wall creeps, the arms
+  // launch, the beam tips, and the player answers things without ever aiming
+  // at anything. So the threat becomes a *goal*. Each of them wears armour
+  // that only comes off the way that boss is about -- shove the wall back,
+  // empty the orbit, bring the beam level -- and when it does the core opens
+  // and offers one problem. Those are the hits that actually kill it.
+  //
+  // Zero here means the boss uses the salvo model instead.
+  static get coreHits() { return 0; }
+  get coreTotal() { return this.constructor.coreHits; }
+  // 1 = sealed, 0 = wide open. Subclasses compute it from their own state.
+  get armour() { return 1; }
+  // The problem the core offers while it is open.
+  _core() { return null; }
 
   // Is the core answerable right now?
   get openCore() { return this.beat === 'open'; }
@@ -160,6 +214,7 @@ export class Encounter {
   get beatLeft() { return this.beat === 'open' ? Math.max(0, this.beatT) : 0; }
 
   _volley(dt, api) {
+    if (this.coreTotal) return this._armoured(dt, api);
     if (!this.salvoSize) return;
     this.missiles = this.missiles.filter((m) => m.alive);
 
@@ -179,6 +234,36 @@ export class Encounter {
     }
     // Whatever the beat, the held demands agree with it.
     for (const b of this.held) b.sealed = !this.openCore;
+  }
+
+  // Armour off, core open, one problem, armour back on.
+  _armoured(dt, api) {
+    if (this.coreBeast && !this.coreBeast.alive) this.coreBeast = null;
+
+    if (this.beat === 'open') {
+      this.beatT -= dt;
+      if (this.beatT <= 0 || !this.coreBeast) {
+        // The window closed, or the core was answered. Either way it shuts,
+        // and the armour is back on the moment the boss recovers its state.
+        this.beat = 'sealed';
+        if (this.coreBeast) { this.coreBeast.attached = false; this.coreBeast.kill(); }
+        this.coreBeast = null;
+      }
+      return;
+    }
+    // Sealed: waiting for the player to do the thing this boss is about.
+    if (this.rearm > 0) { this.rearm -= dt; return; }
+    if (this.armour <= 0.001) {
+      const spec = this._core(api);
+      if (!spec) return;
+      const b = api.demand(spec, this.x, this.y - 8);
+      b.core = true;
+      this.coreBeast = b;
+      this.held.push(b);
+      this.beat = 'open';
+      this.beatT = OPEN;
+      if (api.audio && api.audio.charged) api.audio.charged();
+    }
   }
 
   // Throw a salvo. The problems come from the curriculum, so a boss needs to

@@ -183,8 +183,28 @@ function drawBossBanner(ctx, g, W, H) {
 // refusing them for no visible reason.
 function drawBossBeat(ctx, g, W) {
   const b = g.boss;
-  if (!b || !b.alive || !b.salvoSize || b.exposed) return;
+  if (!b || !b.alive || b.exposed) return;
+  if (!b.salvoSize && !b.coreTotal) return;
   const open = b.openCore;
+
+  // An armoured boss shows how far off its armour is instead of INCOMING:
+  // there is no salvo to clear, there is a thing to achieve, and the gauge is
+  // the only way to tell whether what you are doing is working.
+  if (b.coreTotal && !open) {
+    const k = clamp(1 - b.armour, 0, 1);
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `700 13px ${MONO}`;
+    ctx.fillStyle = `hsla(${theme.boss},95%,${62 + k * 26}%,0.9)`;
+    ctx.fillText(b.rearm > 0 ? 'ARMOUR RESET' : b.tagline, W / 2, 88);
+    ctx.fillStyle = 'rgba(120,110,150,0.3)';
+    ctx.fillRect(W / 2 - 90, 98, 180, 3);
+    ctx.fillStyle = `hsla(${theme.boss},100%,${58 + k * 30}%,0.9)`;
+    ctx.fillRect(W / 2 - 90, 98, 180 * k, 3);
+    ctx.restore();
+    return;
+  }
   ctx.save();
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
