@@ -43,6 +43,13 @@ const SETTLE = 0.13;          // coverage travelled while a city is still gutter
 const KINDLE_R = 190;         // how far along the limb an absorbed orb is felt
 const CURTAINS = 6;           // aurora ribbons at full coverage
 
+// A perfect wave. The news travels out along the limb from the plate that was
+// repaired, lighting each city as it arrives, and the whole world stays up
+// celebrating for a few seconds afterwards. A flat flash would say the same
+// thing in one frame and say it about nowhere in particular.
+const NEWS = 0.9;             // radians per second the word spreads
+const OVATION = 2.8;          // seconds the celebration takes to die down
+
 export class Shield {
   constructor() {
     const arc = ARC_TO - ARC_FROM;
@@ -101,6 +108,9 @@ export class Shield {
     // Bumped every time energy actually reaches the dome, so absorbing an orb
     // runs a swell through the atmosphere instead of only ticking a number.
     this.pulse = 0;
+    // A perfect wave: 0..1 celebration level, and the front carrying the news.
+    this.cheer = 0;
+    this.news = null;
 
     // 0..1 while the Kraken's finisher winds up: two fronts running inward
     // along the arc, gathering what the player built into the cannon.
@@ -164,6 +174,15 @@ export class Shield {
       const near = 1 - clamp(Math.abs(cx - x) / KINDLE_R, 0, 1);
       if (near > 0) c.flare = Math.min(1, c.flare + near * strength);
     }
+  }
+
+  // A perfect wave. Every city cheers, but not at once: the word starts at `x`
+  // and runs both ways along the limb, so what the player sees is a wave of
+  // light crossing the world rather than the world blinking.
+  ovation(x) {
+    this.cheer = 1;
+    this.news = { angle: this.surfaceAngle(x), t: 0 };
+    for (const c of this.cities) c.cheered = false;
   }
 
   crackPlate(nearX) {
@@ -262,6 +281,25 @@ export class Shield {
     const cov = this.coverage;
     this.lit = damp(this.lit, cov, cov < this.lit ? 3.4 : 1.5, dt);
     this.pulse = Math.max(0, this.pulse - dt * 1.5);
+    this.cheer = Math.max(0, this.cheer - dt / OVATION);
+    if (this.news) {
+      this.news.t += dt;
+      const reach = this.news.t * NEWS;
+      let waiting = false;
+      for (const c of this.cities) {
+        if (c.cheered) continue;
+        if (Math.abs(c.angle - this.news.angle) <= reach) {
+          // A city that has never been lit does not get to cheer; it is still
+          // dark, and pretending otherwise would undo the one thing coverage
+          // is saying.
+          if (this.woke(c) > 0) c.flare = 1;
+          c.cheered = true;
+        } else {
+          waiting = true;
+        }
+      }
+      if (!waiting) this.news = null;
+    }
     for (const c of this.cities) {
       if (c.flare > 0) c.flare = Math.max(0, c.flare - dt * 1.25);
     }
@@ -347,10 +385,14 @@ export class Shield {
   }
 
   _drawPlanet(ctx, density = 1) {
-    // How awake the world is. The pulse rides on top so each absorbed orb is a
-    // swell, not a step, and it is allowed past 1 -- a busy dome overdrives the
-    // atmosphere for a second, which is exactly the moment worth watching.
-    const lit = clamp(this.lit + this.pulse * 0.22, 0, 1.12);
+    // Two numbers, and keeping them apart matters. `lit` is what the player has
+    // actually built, and it alone decides which cities are awake. `glow` is
+    // what the sky looks like this instant -- the swell of an absorbed orb and
+    // the ovation of a perfect wave ride on top of it, and it is allowed past 1.
+    // Running the pair together would have a celebration switch on cities that
+    // the dome has not earned yet, then switch them off again as it faded.
+    const lit = clamp(this.lit, 0, 1);
+    const glow = clamp(lit + this.pulse * 0.22 + this.cheer * 0.2, 0, 1.15);
     const calm = theme.reducedMotion ? 0.22 : 1;
 
     ctx.save();
@@ -369,17 +411,17 @@ export class Shield {
     ctx.globalCompositeOperation = 'lighter';
     // The atmosphere thickens as the dome does: brighter, and reaching further
     // off the limb, so the planet has a halo worth protecting by the end.
-    const reach = 18 + lit * 26;
+    const reach = 18 + glow * 26;
     const rim = ctx.createRadialGradient(CX, CY, R_SURFACE - 26, CX, CY, R_SURFACE + reach);
     rim.addColorStop(0, `hsla(${theme.friendly + 10}, 100%, 60%, 0)`);
-    rim.addColorStop(0.7, `hsla(${theme.friendly + 6}, 100%, ${62 + lit * 8}%, ${0.28 + lit * 0.22})`);
+    rim.addColorStop(0.7, `hsla(${theme.friendly + 6}, 100%, ${62 + glow * 8}%, ${0.28 + glow * 0.22})`);
     rim.addColorStop(1, `hsla(${theme.friendly + 6}, 100%, 70%, 0)`);
     ctx.fillStyle = rim;
     ctx.beginPath();
     ctx.arc(CX, CY, R_SURFACE + reach + 2, 0, TAU);
     ctx.fill();
 
-    this._drawCurtains(ctx, lit, density, calm);
+    this._drawCurtains(ctx, glow, density, calm);
 
     // City lights. A darkened group leaves a cold ember behind, not nothing --
     // the lights went out, the city is still there. An unwoken one is the same
@@ -389,7 +431,7 @@ export class Shield {
       const x = CX + Math.cos(c.angle) * r;
       const y = CY + Math.sin(c.angle) * r;
       // 0 asleep, 1 burning steady. In between it is coming on.
-      const woke = this.woke(c, lit);
+      const woke = this.woke(c);
       if (woke <= 0) {
         // Two ways to be dark, and they should not look alike: a city whose
         // core was lost is a burnt ember, a city that has not dared switch on
@@ -403,10 +445,13 @@ export class Shield {
         continue;
       }
 
-      // Two twinkles rather than one: the slow breath every light has always
-      // had, plus a faster shimmer that only shows up on a well-defended world.
+      // Three twinkles now: the slow breath every light has always had, a
+      // faster shimmer that only shows up on a well-defended world, and -- for
+      // a few seconds after a perfect wave -- an outright sparkle, each city
+      // running at its own rate so the limb glitters rather than pulses.
       const tw = 0.6 + Math.sin(this.t * 1.8 * calm + c.tw) * 0.4
-        + Math.sin(this.t * 4.3 * calm + c.tw * 2.1) * 0.16 * lit;
+        + Math.sin(this.t * 4.3 * calm + c.tw * 2.1) * 0.16 * glow
+        + Math.sin(this.t * (9 + c.tw * 2.4) * calm + c.tw * 3.7) * 0.38 * this.cheer;
       // The guttering. A tube that has just been switched on after a long dark
       // stutters before it holds, and the stutter dies out as the dome grows
       // past the threshold that woke it.
@@ -420,18 +465,18 @@ export class Shield {
       // dome's cyan as coverage rose and spent the whole middle of the run
       // passing through green, which reads as a fault, not as prosperity. The
       // cool light belongs above the cities, in the aurora, not in them.
-      const hue = 46 + lit * 5;
-      ctx.fillStyle = `hsla(${hue}, 100%, ${76 + lit * 10 + c.flare * 14}%, ${bright})`;
+      const hue = 46 + glow * 5;
+      ctx.fillStyle = `hsla(${hue}, 100%, ${76 + glow * 10 + c.flare * 14}%, ${bright})`;
       ctx.beginPath();
-      ctx.arc(x, y, c.size * (0.8 + woke * 0.3 + lit * 0.2 + c.flare * 0.6), 0, TAU);
+      ctx.arc(x, y, c.size * (0.8 + woke * 0.3 + glow * 0.2 + c.flare * 0.6), 0, TAU);
       ctx.fill();
 
       // A halo on the brightest of them, from a cached sprite: forty-eight
       // gradients a frame is not worth it, and forty-eight flat discs read as
       // grey coins rather than as light.
-      const halo = (bright - 0.55) * lit * density;
+      const halo = (bright - 0.55) * glow * density;
       if (halo > 0.02) {
-        const hr = c.size * (5 + lit * 5 + c.flare * 7);
+        const hr = c.size * (5 + glow * 5 + c.flare * 7);
         ctx.globalAlpha = clamp(halo * 1.15, 0, 1);
         ctx.drawImage(this._glow(), x - hr, y - hr, hr * 2, hr * 2);
         ctx.globalAlpha = 1;

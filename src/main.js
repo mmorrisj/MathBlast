@@ -955,6 +955,10 @@ class Game {
       const p = this.shield.repairWorst();
       this.shield.healScar();
       this.shield.flash = 1;
+      // The world hears about it. The news starts at the plate that was
+      // repaired -- or the apex if the dome was already whole -- and runs both
+      // ways along the limb, lighting each city as it arrives.
+      this.shield.ovation(p ? p.x : CX);
       if (p) this.particles.burst(p.x, p.y, 30, { hue: theme.friendly, speed: 240, life: 0.9, size: 4 });
       this.shockwaves.spawn(CX, this.shield.domeY(CX), 1.1, { hue: theme.friendly, split: 0.4 });
       this.score += 250 + this.wave * 60;

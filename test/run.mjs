@@ -1596,6 +1596,61 @@ async function main() {
         domeUp > domeDown * 1.4,
         JSON.stringify({ down: Math.round(domeDown), up: Math.round(domeUp) }));
 
+  // A perfect wave is the one moment the world has something to celebrate.
+  const ovation = await page.evaluate(async () => {
+    const { CX, R_SURFACE } = await import('/src/entities/shield.js');
+    const g = window.game;
+    const s = g.shield;
+    const at = (c) => CX + Math.cos(c.angle) * R_SURFACE;
+    const flaring = () => s.cities.filter((c) => c.flare > 0.05).map(at);
+    const span = (xs) => (xs.length ? [Math.min(...xs), Math.max(...xs)] : null);
+
+    g.beasts.length = 0; g.boss = null;
+    for (const p of s.plates) p.integrity = 1;
+    s.lit = 1; s.cheer = 0; s.news = null;
+    for (const c of s.cities) c.flare = 0;
+
+    // A wave with a miss in it gets the plate repair and nothing else.
+    g.waveMisses = 1;
+    g._endWave();
+    const afterMiss = s.cheer;
+
+    s.cheer = 0; s.news = null;
+    for (const c of s.cities) c.flare = 0;
+    g.waveMisses = 0;
+    g._endWave();
+    const started = { cheer: s.cheer, news: s.news != null };
+
+    // The word starts somewhere and spreads: near cities first, far ones later.
+    s.news.angle = s.surfaceAngle(200);
+    for (const c of s.cities) { c.flare = 0; c.cheered = false; }
+    s.news.t = 0;
+    s.update(0.1);
+    const early = span(flaring());
+    for (let i = 0; i < 12; i++) s.update(0.1);
+    const late = span(flaring());
+
+    // And a world still in the dark has nothing to cheer with.
+    for (const p of s.plates) p.integrity = 0;
+    s.lit = 0;
+    for (const c of s.cities) c.flare = 0;
+    s.ovation(640);
+    for (let i = 0; i < 20; i++) s.update(0.1);
+    const dark = flaring().length;
+
+    g.wavePhase = 'active';
+    return { afterMiss, started, early, late, dark };
+  });
+  check('a perfect wave sets the world cheering, a missed one does not',
+        ovation.started.cheer > 0.9 && ovation.started.news && ovation.afterMiss === 0,
+        JSON.stringify({ perfect: ovation.started, miss: ovation.afterMiss }));
+  check('the news travels out along the limb rather than arriving everywhere at once',
+        ovation.early && ovation.late &&
+        ovation.early[1] - ovation.early[0] < ovation.late[1] - ovation.late[0] &&
+        ovation.late[1] > ovation.early[1] + 200,
+        JSON.stringify({ early: ovation.early, late: ovation.late }));
+  check('a world still in the dark has nothing to cheer with', ovation.dark === 0);
+
   await setCoverage(0.35);
   await clearField();
 
