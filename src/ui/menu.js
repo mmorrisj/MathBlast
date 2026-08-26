@@ -13,10 +13,19 @@ import { theme } from '../theme.js';
 
 const MONO = '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace';
 
-const ROW_H = 62;
+const ROW_H = 62;              // the tallest a row gets
 const ROW_W = 460;
 const GAP = 10;
 const TOP = 150;
+const FOOT = 52;               // room kept for the "ESC to close" line
+
+// Rows shrink to fit rather than running off the bottom. The title-screen menu
+// is eight entries, which at a fixed 62 ran to y=726 in a 720-tall frame: the
+// last one was cut in half and the footer was drawn across it.
+function layout(n, H) {
+  const room = H - FOOT - TOP;
+  return { top: TOP, rowH: Math.min(ROW_H, Math.floor((room - (n - 1) * GAP) / n)) };
+}
 
 // `danger: true` marks an entry that ends the run, so it can be set apart and
 // is never the one a stray tap lands on first.
@@ -45,14 +54,15 @@ export function menuItems(g) {
   return items;
 }
 
-export function menuRect(i, W) {
-  return { x: W / 2 - ROW_W / 2, y: TOP + i * (ROW_H + GAP), w: ROW_W, h: ROW_H };
+export function menuRect(i, W, n = 1, H = 720) {
+  const { top, rowH } = layout(n, H);
+  return { x: W / 2 - ROW_W / 2, y: top + i * (rowH + GAP), w: ROW_W, h: rowH };
 }
 
-export function menuHitTest(px, py, g, W) {
+export function menuHitTest(px, py, g, W, H = 720) {
   const items = menuItems(g);
   for (let i = 0; i < items.length; i++) {
-    const r = menuRect(i, W);
+    const r = menuRect(i, W, items.length, H);
     if (px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h) return items[i].id;
   }
   return null;
@@ -80,33 +90,43 @@ export function drawMenu(ctx, g, W, H, t) {
     ctx.fillText(`playing as ${player.name}`, W / 2, 112);
   }
 
+  // An unselected row used to be near-black on near-black with a hairline
+  // border at three tenths of an alpha: only the highlighted one read as a
+  // button at all, and the rest looked like empty space with words on it. They
+  // are slabs now -- lit enough to be seen against the overlay, with a border
+  // that is actually a border -- and the highlight still wins by a mile.
   items.forEach((item, i) => {
-    const r = menuRect(i, W);
+    const r = menuRect(i, W, items.length, H);
     const on = i === g.menuIndex;
-    ctx.fillStyle = on ? 'rgba(18,38,62,0.95)' : 'rgba(10,18,34,0.7)';
+    const hue = item.danger ? 12 : theme.friendly;
+    ctx.fillStyle = on
+      ? `hsla(${hue}, ${item.danger ? 55 : 60}%, 26%, 0.95)`
+      : `hsla(${hue}, ${item.danger ? 40 : 45}%, 17%, 0.9)`;
     roundRect(ctx, r.x, r.y, r.w, r.h, 12);
     ctx.fill();
-    ctx.lineWidth = on ? 2.4 : 1.2;
+    ctx.lineWidth = on ? 2.6 : 1.6;
     ctx.strokeStyle = on
       ? `hsla(${item.danger ? 12 : 48}, 100%, 70%, ${0.85 + Math.sin(t * 7) * 0.15})`
-      : `hsla(${item.danger ? 12 : theme.friendly}, 70%, 60%, 0.3)`;
+      : `hsla(${hue}, 80%, 66%, 0.55)`;
     ctx.stroke();
 
     ctx.textAlign = 'left';
     ctx.font = `700 20px ${MONO}`;
-    ctx.fillStyle = item.danger ? '#ffd0c0' : (on ? '#fff6dc' : 'rgba(200,228,248,0.9)');
-    ctx.fillText(item.label, r.x + 24, r.y + (item.hint ? 24 : r.h / 2));
-    if (item.hint) {
+    ctx.fillStyle = item.danger ? '#ffd6c8' : (on ? '#fff6dc' : '#dcecfa');
+    const twoLine = item.hint && r.h >= 46;
+    ctx.fillText(item.label, r.x + 24, r.y + (twoLine ? r.h * 0.38 : r.h / 2));
+    if (twoLine) {
       ctx.font = `400 12px ${MONO}`;
-      ctx.fillStyle = 'rgba(150,190,220,0.55)';
-      ctx.fillText(item.hint, r.x + 24, r.y + 44);
+      ctx.fillStyle = 'rgba(186,214,238,0.75)';
+      ctx.fillText(item.hint, r.x + 24, r.y + r.h * 0.71);
     }
     ctx.textAlign = 'center';
   });
 
+  const last = menuRect(items.length - 1, W, items.length, H);
   ctx.font = `600 14px ${MONO}`;
   ctx.fillStyle = `hsla(${theme.friendly},90%,72%,0.9)`;
   ctx.fillText(g.touch ? 'tap outside to close' : 'ESC to close  ·  ↑ ↓ and ENTER to choose',
-               W / 2, clamp(TOP + items.length * (ROW_H + GAP) + 34, 0, H - 26));
+               W / 2, clamp(last.y + last.h + 30, 0, H - 22));
   ctx.restore();
 }

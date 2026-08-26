@@ -78,6 +78,20 @@ async function main() {
     g.beasts.push(eval(src));
   }, expr);
   const waitTarget = () => page.waitForFunction(() => window.game.targetBeast != null, null, { timeout: 6000 });
+  // "Nothing is alive" is not the same claim as "the thing I shot died", and
+  // the difference is a race: killing the last beast ends the wave, and after
+  // the interlude the next one spawns. A test that waited for an empty field
+  // could sample after that and see a brand new beast -- one run in twelve,
+  // measured. This pins the beast under test and waits for that one to die.
+  const mark = () => page.evaluate(() => {
+    window.__mark = window.game.beasts.find((b) => b.alive);
+  });
+  const kills = async (label) => {
+    const dead = await page.waitForFunction(
+      () => window.__mark && !window.__mark.alive, null, { timeout: 4000 },
+    ).then(() => true, () => false);
+    check(label, dead);
+  };
   const state = (fn) => page.evaluate(fn);
   const type = async (s) => {
     await page.evaluate(() => { window.game.input = ''; });
@@ -170,9 +184,9 @@ async function main() {
   await only('new M.SplitBeast(17, 640, 220, 0)');
   await waitTarget();
   check('a prime rejects a factor', (await state(() => window.game.targetBeast.accepts('4'))) === false);
+  await mark();
   await type('17');
-  await page.waitForTimeout(600);
-  check('a prime dies when it is named', (await state(() => window.game.beasts.filter((b) => b.alive).length)) === 0);
+  await kills('a prime dies when it is named');
 
   // --- every beast states its own task ------------------------------------
   // A bare number is not a question. This is the regression that made boulders
@@ -301,10 +315,9 @@ async function main() {
         postP.combo === preP.combo && postP.intact === preP.intact &&
         postP.attempts === preP.attempts && postP.revealed &&
         postP.prompt === '17 is PRIME');
+  await mark();
   await type('17');
-  await page.waitForTimeout(600);
-  check('a revealed prime still dies when named',
-        (await state(() => window.game.beasts.filter((b) => b.alive).length)) === 0);
+  await kills('a revealed prime still dies when named');
 
   // --- a boulder accepts what its label asks for ----------------------------
   // The rock reads "? × ? = 48", so both halves of that question have to work:
@@ -1066,17 +1079,20 @@ async function main() {
 
   // Resume has to actually resume. Closing the menu left the run paused, so
   // the next tap went on unpausing instead of on the game.
-  const rowY0 = (i) => 150 + i * 72 + 31;
-  await tap(640, rowY0(menuMid.ids.indexOf('resume')));
+  const rowY0 = async (i) => pg.evaluate((n) => {
+    const { menuRect, menuItems } = window.__menu;
+    const r = menuRect(n, 1280, menuItems(window.game).length, 720);
+    return r.y + r.h / 2;
+  }, i);
+  await tap(640, await rowY0(menuMid.ids.indexOf('resume')));
   check('resume closes the menu and unpauses',
         await pg.evaluate(() => !window.game.menu && !window.game.paused));
   await tap(1280 - 18 - 37, 720 - 18 - 37);
 
   // The thing that was impossible before: leaving a run to change player.
-  const rowY = (i) => 150 + i * 72 + 31;
   const playerRow = menuMid.ids.indexOf('player');
   const beforeScores = await pg.evaluate(() => window.game.scores.list.length);
-  await tap(640, rowY(playerRow));
+  await tap(640, await rowY0(playerRow));
   const switched = await pg.evaluate(() => ({
     state: window.game.state, menu: window.game.menu,
     scores: window.game.scores.list.length,
@@ -1095,9 +1111,83 @@ async function main() {
   });
   check('the menu reaches the board, the sky and the report between runs',
         ['board', 'sky', 'report', 'help'].every((id) => menuOut.includes(id)));
-  await tap(640, rowY(menuOut.indexOf('help')));
+  await tap(640, await rowY0(menuOut.indexOf('help')));
   check('a menu entry opens what it names',
         await pg.evaluate(() => window.game.help && !window.game.menu));
+
+  // Reported as "the menu buttons are too dark to see". An unselected row was
+  // near-black on near-black behind a hairline border at three tenths of an
+  // alpha: only the highlighted one read as a button. And the eight-entry
+  // title menu ran off the bottom of a 720-tall frame, so the last row was cut
+  // in half with the footer drawn across it.
+  await pg.evaluate(() => { window.game.help = false; window.game._openMenu(); });
+  await pg.waitForTimeout(400);
+  const rows = await pg.evaluate(() => {
+    const { menuItems, menuRect, menuHitTest } = window.__menu;
+    const g = window.game;
+    const items = menuItems(g);
+    const ctx = document.getElementById('game').getContext('2d');
+    const lum = (x, y) => {
+      const d = ctx.getImageData(Math.round(x), Math.round(y), 6, 6).data;
+      let s = 0;
+      for (let i = 0; i < d.length; i += 4) s += d[i] + d[i + 1] + d[i + 2];
+      return s / (d.length / 4) / 3;
+    };
+    const boxes = items.map((_, i) => menuRect(i, 1280, items.length, 720));
+    return {
+      count: items.length,
+      bottom: Math.round(boxes[boxes.length - 1].y + boxes[boxes.length - 1].h),
+      // Every row's own fill against the overlay just outside the list.
+      fills: boxes.map((r) => Math.round(lum(r.x + r.w / 2, r.y + r.h / 2))),
+      backdrop: Math.round(lum(120, 400)),
+      // A tap in the middle of a drawn row picks that row.
+      hits: items.map((it, i) => {
+        const r = boxes[i];
+        return menuHitTest(r.x + r.w / 2, r.y + r.h / 2, g, 1280, 720) === it.id;
+      }),
+    };
+  });
+  check('every menu row fits inside the frame',
+        rows.count === 8 && rows.bottom < 720 - 30,
+        JSON.stringify({ rows: rows.count, bottom: rows.bottom }));
+  check('an unselected menu row is visible against the backdrop',
+        rows.fills.every((f) => f > rows.backdrop + 8),
+        JSON.stringify({ fills: rows.fills, backdrop: rows.backdrop }));
+  check('a tap in a row picks the row it is drawn on',
+        rows.hits.every(Boolean), JSON.stringify(rows.hits));
+  await pg.evaluate(() => window.game._closeMenu());
+
+  // The title screen picks up the same fix. An unchosen mode or tier was the
+  // same near-black box, on the screen whose whole job is picking a different
+  // one from the one already selected.
+  // The picker only exists on the title screen, and this page is sitting in the
+  // player picker by now -- sampling without putting it back would measure
+  // empty sky and pass on any colour at all.
+  await pg.evaluate(() => { window.game._wasState = window.game.state; window.game.state = 'title'; });
+  await pg.waitForTimeout(400);
+  const picker = await pg.evaluate(async () => {
+    const { modeRect, tierRect } = await import('/src/ui/hud.js');
+    const { PICKER } = await import('/src/modes.js');
+    const { TIERS } = await import('/src/difficulty.js');
+    const g = window.game;
+    const ctx = document.getElementById('game').getContext('2d');
+    const lum = (x, y) => {
+      const d = ctx.getImageData(Math.round(x), Math.round(y), 6, 6).data;
+      let s = 0;
+      for (let i = 0; i < d.length; i += 4) s += d[i] + d[i + 1] + d[i + 2];
+      return s / (d.length / 4) / 3;
+    };
+    const at = (r) => Math.round(lum(r.x + r.w / 2, r.y + r.h - 8));
+    const mi = Math.max(0, PICKER.findIndex((m) => m.id === g.mode));
+    const modes = PICKER.map((_, i) => at(modeRect(i, 1280)));
+    const tiers = TIERS.map((_, i) => at(tierRect(i, 1280)));
+    return { modes, tiers, sky: Math.round(lum(120, 400)), chosen: mi, tierIndex: g.tierIndex };
+  });
+  check('an unchosen mode or difficulty is still visible as a button',
+        picker.modes.every((v) => v > picker.sky + 8) &&
+        picker.tiers.every((v) => v > picker.sky + 8),
+        JSON.stringify(picker));
+  await pg.evaluate(() => { window.game.state = window.game._wasState; });
 
   // A phone browser's URL bar shrinks the *visual* viewport while
   // window.innerHeight -- the layout viewport -- stays put. Sizing the canvas
@@ -1653,9 +1743,13 @@ async function main() {
 
   // Holding the dome whole had nothing to show for it: coverage caps at 1 and
   // every further orb cashed out as score. Now the world starts building roads.
+  // On a Shield of its own, not the live one. The game loop is still running
+  // and calls shield.update() every frame: a beast landing mid-check cracks a
+  // plate, coverage drops under whole, and the uptime clock this is measuring
+  // unwinds under the test. Same code, no interference.
   const grid = await page.evaluate(async () => {
-    const { CX, R_SURFACE } = await import('/src/entities/shield.js');
-    const s = window.game.shield;
+    const { Shield, CX, R_SURFACE } = await import('/src/entities/shield.js');
+    const s = new Shield();
     const whole = () => { for (const p of s.plates) p.integrity = 1; };
     const run = (secs) => { for (let i = 0; i < secs * 60; i++) s.update(1 / 60); };
 

@@ -156,7 +156,13 @@ export class Shield {
     return pairs.map(([a, b]) => {
       const mid = (this.cities[a].angle + this.cities[b].angle) / 2;
       const out = Math.abs(mid - ARC_MID) / (far || 1);
-      return { a, b, born: GRID_TIME * out ** 0.85 * rand(1.1, 0.9), tw: rand(TAU) };
+      // Clamped to GRID_TIME, because the uptime clock stops at GRID_TIME plus
+      // one road's growth. The ten percent jitter could push an outer road's
+      // start past that ceiling, and a road that starts after the clock stops
+      // never starts at all: some planets shipped with one or two roads that
+      // could not be built no matter how long the dome was held.
+      const born = Math.min(GRID_TIME, GRID_TIME * out ** 0.85 * rand(1.1, 0.9));
+      return { a, b, born, tw: rand(TAU) };
     });
   }
 
