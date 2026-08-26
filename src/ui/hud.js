@@ -8,6 +8,7 @@ import { drawScores } from './profile.js';
 import { TIERS } from '../difficulty.js';
 import { planLabel } from '../adaptive.js';
 import { PICKER, TRACKS, RUN_WAVES, formatClock } from '../modes.js';
+import { ROSTER } from '../entities/bosses/index.js';
 
 const MONO = '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace';
 
@@ -223,6 +224,44 @@ function drawBossBeat(ctx, g, W) {
   ctx.restore();
 }
 
+// The gauntlet: ten remnant glyphs, filling in as each guardian goes down.
+//
+// A row of anonymous pips would say how far along you are and nothing else.
+// The glyphs are the marks the bosses leave behind and the same ones the
+// victory screen totals up, so this reads as a trophy shelf being filled --
+// and one lit glyph tells you which of the ten you just beat.
+function drawGauntlet(ctx, g, W) {
+  if (!g.gauntletTotal) return;
+  const gap = 34;
+  const x0 = W / 2 - ((ROSTER.length - 1) * gap) / 2;
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `700 22px ${MONO}`;
+  ROSTER.forEach((Cls, i) => {
+    const done = i < g.gauntletDone;
+    const here = i === g.gauntletDone;
+    const rem = Cls.remnant;
+    if (done) {
+      ctx.fillStyle = `hsla(${rem.hue}, 100%, 74%, 0.95)`;
+      ctx.shadowColor = `hsla(${rem.hue}, 100%, 60%, 0.9)`;
+      ctx.shadowBlur = 14;
+    } else if (here) {
+      // The one on the field, pulsing, so the row says where you are as well
+      // as how far you have come.
+      const k = 0.55 + Math.sin(g.time * 5) * 0.35;
+      ctx.fillStyle = `hsla(${theme.boss}, 100%, 76%, ${k})`;
+      ctx.shadowColor = `hsla(${theme.boss}, 100%, 60%, 0.8)`;
+      ctx.shadowBlur = 16;
+    } else {
+      ctx.fillStyle = 'rgba(140,130,170,0.3)';
+      ctx.shadowBlur = 0;
+    }
+    ctx.fillText(rem.glyph, x0 + i * gap, 118);
+  });
+  ctx.restore();
+}
+
 // How much of the boss is left, as a row of pips under the banner.
 //
 // These used to be drawn in the world, at a per-boss offset from the body.
@@ -340,7 +379,12 @@ export function drawHud(ctx, g, W, H) {
   // A run with a finish line says how far along it is, because "wave 38" means
   // something quite different when there are fifty of them.
   if (!g.bossBanner) {
-    ctx.fillText(g.timed ? `WAVE ${g.wave} / ${RUN_WAVES}` : `WAVE ${g.wave}`, W / 2, 46);
+    // On the last wave of Arcade the wave number is settled and useless -- what
+    // the player needs to know is how many guardians are left.
+    const label = g.gauntletTotal
+      ? `GAUNTLET ${Math.min(g.gauntletDone + 1, g.gauntletTotal)} / ${g.gauntletTotal}`
+      : (g.timed ? `WAVE ${g.wave} / ${RUN_WAVES}` : `WAVE ${g.wave}`);
+    ctx.fillText(label, W / 2, 46);
   }
 
   // The clock, under the wave counter. The right-hand column is already cores
@@ -491,6 +535,7 @@ export function drawHud(ctx, g, W, H) {
   drawBossBanner(ctx, g, W, H);
   drawBossPips(ctx, g, W);
   drawBossBeat(ctx, g, W);
+  drawGauntlet(ctx, g, W);
   drawUnlock(ctx, g, W);
   drawLastStand(ctx, g, W, H, g.time);
   drawMastered(ctx, g, W, H);
@@ -984,12 +1029,23 @@ export function drawVictory(ctx, g, W, H, t) {
   ctx.fillStyle = `hsla(${theme.friendly},95%,74%,0.9)`;
   ctx.fillText(run.label || 'ARCADE', W / 2, H / 2 - 214 + rise);
 
-  ctx.font = `700 76px ${MONO}`;
+  // Arcade ends by going through all ten guardians back to back. That is a
+  // different ending from Practice's fiftieth wave and it gets a different
+  // word: one is a distance covered, the other is the thing the whole run was
+  // for.
+  ctx.font = `700 ${g.wonGauntlet ? 66 : 76}px ${MONO}`;
   ctx.fillStyle = '#eafff4';
   ctx.shadowColor = `hsla(${theme.friendly},100%,62%,0.95)`;
   ctx.shadowBlur = 40;
-  ctx.fillText('FIFTY WAVES CLEAR', W / 2, H / 2 - 152 + rise);
+  ctx.fillText(g.wonGauntlet ? 'CONGRATULATIONS' : 'FIFTY WAVES CLEAR',
+               W / 2, H / 2 - 152 + rise);
   ctx.shadowBlur = 0;
+  if (g.wonGauntlet) {
+    ctx.font = `700 19px ${MONO}`;
+    ctx.fillStyle = `hsla(${theme.boss},95%,80%,0.92)`;
+    ctx.fillText('FIFTY WAVES  ·  ALL TEN GUARDIANS, BACK TO BACK',
+                 W / 2, H / 2 - 108 + rise);
+  }
 
   // The result.
   ctx.font = `700 15px ${MONO}`;
@@ -1021,15 +1077,25 @@ export function drawVictory(ctx, g, W, H, t) {
     ctx.restore();
   }
 
-  // The bosses you had to go through, as the marks they left behind.
+  // The bosses you had to go through, as the marks they left behind. Each in
+  // its own colour: a row of identical grey glyphs was a decoration, and these
+  // are ten different trophies.
   const trophies = g.progress.trophies ? Object.keys(g.progress.trophies()) : [];
   if (trophies.length) {
     ctx.font = `700 12px ${MONO}`;
     ctx.fillStyle = 'rgba(150,200,235,0.55)';
     ctx.fillText('REMNANTS', W / 2, H / 2 + 130);
-    ctx.font = `700 30px ${MONO}`;
-    ctx.fillStyle = 'rgba(230,244,255,0.9)';
-    ctx.fillText(REMNANT_ROW, W / 2, H / 2 + 164);
+    const gap = 46;
+    const x0 = W / 2 - ((ROSTER.length - 1) * gap) / 2;
+    ctx.font = `700 32px ${MONO}`;
+    ROSTER.forEach((Cls, i) => {
+      const rem = Cls.remnant;
+      ctx.fillStyle = `hsla(${rem.hue}, 100%, 78%, 0.95)`;
+      ctx.shadowColor = `hsla(${rem.hue}, 100%, 60%, 0.85)`;
+      ctx.shadowBlur = 16;
+      ctx.fillText(rem.glyph, x0 + i * gap, H / 2 + 166);
+    });
+    ctx.shadowBlur = 0;
   }
 
   const a = 0.55 + Math.sin(t * 4) * 0.45;
@@ -1039,9 +1105,6 @@ export function drawVictory(ctx, g, W, H, t) {
                W / 2, H - 62);
   ctx.restore();
 }
-
-// In wave order, which is the order they were earned.
-const REMNANT_ROW = '▣  ∞  =  1  ÷  =  ?  ½  0  ◐';
 
 export function drawGameOver(ctx, g, W, H, t) {
   const fade = clamp(t / 0.8, 0, 1);

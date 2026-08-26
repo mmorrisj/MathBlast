@@ -20,8 +20,19 @@ export { Kraken, Bulwark, Twins, Remainder, Cipher, Nought, Hydra, Balance, Pris
 const WARDENS = [Bulwark, Twins, Remainder, Cipher, Nought];
 const LEVIATHANS = [Kraken, Hydra, Balance, Prism, Echo];
 
+// All ten, in the order a run meets them. Arcade's last wave runs the whole
+// roster back to back, which is the only place this order is load-bearing --
+// and it is the right order, because it is the one the player learned them in.
+export const ROSTER = [Bulwark, Kraken, Twins, Hydra, Remainder,
+                       Balance, Cipher, Prism, Nought, Echo];
+
 export const isBossWave = (wave) => wave >= 5 && wave % 5 === 0;
 export const isLeviathan = (wave) => wave >= 10 && wave % 10 === 0;
+// By class rather than by wave. During the gauntlet every guardian arrives on
+// wave fifty, so asking the wave number would give all ten the full Leviathan
+// treatment -- the camera pull-back and the long announcement -- and lose the
+// difference between a Warden and a set piece on the one wave it matters most.
+export const isLeviathanBoss = (Cls) => LEVIATHANS.includes(Cls);
 
 // The class due on this wave, or null on an ordinary one.
 export function bossFor(wave) {
@@ -33,18 +44,13 @@ export function bossFor(wave) {
 
 // Built and placed. The Echo is the only one that needs anything from outside
 // itself, and what it needs is the player's own record of getting things wrong.
-export function makeBoss(wave, x, y, skill) {
-  const Cls = bossFor(wave);
+export function makeBossOf(Cls, wave, x, y, skill) {
   if (!Cls) return null;
   if (Cls === Echo) return new Echo(x, y, wave, skill ? skill.weakest(6) : []);
   if (Cls === Kraken) return new Kraken(x, y, wave, 5 + Math.floor(wave / 10));
   return new Cls(x, y, wave);
 }
 
-// Where each one sits. Each class names its own height, because what has to
-// fit underneath it differs: the Kraken needs room for an orbit, the Hydra for
+// Where each one sits comes off the class -- `Cls.originY` -- because what has
+// to fit underneath differs: the Kraken needs room for an orbit, the Hydra for
 // three rows of heads, a Warden for neither.
-export function bossOrigin(wave) {
-  const Cls = bossFor(wave);
-  return Cls ? Cls.originY : 250;
-}

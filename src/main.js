@@ -34,7 +34,8 @@ import { drawCodex, codexHitTest, codexArtHit, codexCount } from './ui/codex.js'
 import { ENTRIES as CODEX } from './codex.js';
 import { drawProgress } from './ui/progress.js';
 import { drawMenu, menuItems, menuHitTest } from './ui/menu.js';
-import { makeBoss, bossOrigin, isBossWave, isLeviathan, DemandBeast } from './entities/bosses/index.js';
+import { makeBossOf, bossFor, isBossWave, isLeviathan, isLeviathanBoss, ROSTER,
+  DemandBeast } from './entities/bosses/index.js';
 import { dayKey } from './progress.js';
 
 const W = 1280;
@@ -197,6 +198,11 @@ class Game {
     this.wavePhase = 'active';
     this.boss = null;
     this.bossBlast = null;
+    // The last wave of Arcade: the guardians still queued, and how many are
+    // down. Zero total means this run is not running one.
+    this.gauntlet = [];
+    this.gauntletTotal = 0;
+    this.gauntletDone = 0;
     this.camera.noStop = false;
     this.phaseTimer = 0;
     this.waveMisses = 0;
@@ -206,6 +212,7 @@ class Game {
     // whoever left the tab open the least, not whoever was quickest.
     this.runTime = 0;
     this.won = false;
+    this.wonGauntlet = false;
     this.unlocks = [];
     this.unlockBanner = 0;
     this.lastPerfect = false;
@@ -918,19 +925,33 @@ class Game {
     if (isBossWave(this.wave)) {
       this.wavePhase = 'boss';
       this.waveRemaining = 0;
-      this.boss = makeBoss(this.wave, CX, bossOrigin(this.wave), this.skill);
       this.bossApi = this._bossApi();
-      this.bossBanner = 2.6;
       // Hitstop and slow motion are suppressed for the duration: a boss fight
       // should not keep stopping to admire itself.
       this.camera.noStop = true;
       this.waveBanner = isLeviathan(this.wave) ? 3.2 : 2.4;
-      this.audio.boss();
-      this.camera.shake(isLeviathan(this.wave) ? 1.2 : 0.7);
+      // The last wave of Arcade is not one guardian, it is all ten, in the
+      // order the run met them. Practice keeps its single Echo: the gauntlet is
+      // what makes Arcade the achievement rather than the longer track.
+      const gauntlet = this.mode === 'arcade' && this.wave === this.finalWave;
+      this.gauntlet = gauntlet ? ROSTER.slice() : [];
+      this.gauntletTotal = gauntlet ? ROSTER.length : 0;
+      this.gauntletDone = 0;
+      this._summon(gauntlet ? this.gauntlet.shift() : bossFor(this.wave));
     } else {
       this.waveRemaining = waveCount(this.tier, this._paceWave());
       this.spawnTimer = 0.6;
     }
+  }
+
+  // Put one guardian on the field. Called once on an ordinary boss wave and ten
+  // times on the last one, which is the whole reason it is not inline.
+  _summon(Cls) {
+    const big = isLeviathanBoss(Cls);
+    this.boss = makeBossOf(Cls, this.wave, CX, Cls.originY, this.skill);
+    this.bossBanner = 2.6;
+    this.audio.boss();
+    this.camera.shake(big ? 1.2 : 0.7);
   }
 
   // The held breath between waves: everything cuts, the camera pulls back, and
@@ -1368,6 +1389,9 @@ class Game {
   // is not a death, and the whole reason the timed modes exist.
   _win() {
     this.won = true;
+    // Did this run end by going through all ten back to back? Arcade's ending
+    // is a different thing from Practice's and the screen should say so.
+    this.wonGauntlet = this.gauntletTotal > 0 && this.gauntletDone >= this.gauntletTotal;
     this.beasts = [];
     this.boss = null;
     this.bossBlast = null;
@@ -1512,8 +1536,16 @@ class Game {
         this.shield.surgeTo(0);
         this._surging = false;
         this.boss = null;
-        this.camera.noStop = false;
-        this._endWave();
+        if (this.gauntletTotal) this.gauntletDone++;
+        // The gauntlet does not end the wave until the roster is empty. The
+        // supernova and the beat before the next one's first salvo are the only
+        // breather there is, which is the point of a gauntlet.
+        if (this.gauntlet.length) {
+          this._summon(this.gauntlet.shift());
+        } else {
+          this.camera.noStop = false;
+          this._endWave();
+        }
       }
     } else if (this.waveRemaining > 0) {
       this.spawnTimer -= dt;
@@ -1619,7 +1651,7 @@ class Game {
     // clock, and bullet time hands that back every time something gets close.
     if (this.boss) {
       this.camera.slowmo = damp(this.camera.slowmo, 0, 9, dtReal);
-      this.camera.punchIn(this.boss.zoom, 0, isLeviathan(this.wave) ? 46 : 30);
+      this.camera.punchIn(this.boss.zoom, 0, isLeviathanBoss(this.boss.constructor) ? 46 : 30);
     } else {
       const nearMiss = !theme.reducedMotion && maxProgress > 0.86 && this.targetBeast;
       this.camera.slowmo = damp(this.camera.slowmo, nearMiss ? 1 : 0, 7, dtReal);
