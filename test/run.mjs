@@ -1651,6 +1651,56 @@ async function main() {
         JSON.stringify({ early: ovation.early, late: ovation.late }));
   check('a world still in the dark has nothing to cheer with', ovation.dark === 0);
 
+  // Holding the dome whole had nothing to show for it: coverage caps at 1 and
+  // every further orb cashed out as score. Now the world starts building roads.
+  const grid = await page.evaluate(async () => {
+    const { CX, R_SURFACE } = await import('/src/entities/shield.js');
+    const s = window.game.shield;
+    const whole = () => { for (const p of s.plates) p.integrity = 1; };
+    const run = (secs) => { for (let i = 0; i < secs * 60; i++) s.update(1 / 60); };
+
+    whole();
+    s.lit = 1; s.uptime = 0; s.cheer = 0; s.news = null;
+    const cold = s.roads;
+    run(6);
+    const early = s.roads;
+    const earlyX = s.links.filter((l) => s.reach(l) > 0)
+      .map((l) => Math.abs(CX + Math.cos((s.cities[l.a].angle + s.cities[l.b].angle) / 2) * R_SURFACE - CX));
+    run(24);
+    const full = s.roads;
+    const fullX = s.links.filter((l) => s.reach(l) > 0)
+      .map((l) => Math.abs(CX + Math.cos((s.cities[l.a].angle + s.cities[l.b].angle) / 2) * R_SURFACE - CX));
+
+    // A breach stops the clock and runs it back -- slower than it ran forward.
+    const held = s.uptime;
+    s.plates[4].integrity = 0;
+    run(4);
+    const breached = s.uptime;
+
+    // And a dark world has no streets to light.
+    whole();
+    s.uptime = 40;
+    s.lit = 0;
+    const dark = s.roads;
+    s.lit = 1;
+    return {
+      cold, early, full, links: s.links.length, dark,
+      earlyOut: Math.max(...earlyX), fullOut: Math.max(...fullX),
+      lost: held - breached, ran: 4,
+    };
+  });
+  check('the road network grows only while the dome is whole',
+        grid.cold === 0 && grid.early > 0 && grid.full > grid.early &&
+        grid.full === grid.links,
+        JSON.stringify({ cold: grid.cold, early: grid.early, full: grid.full, of: grid.links }));
+  check('the roads spread outward from the apex rather than all at once',
+        grid.fullOut > grid.earlyOut + 200,
+        JSON.stringify({ early: Math.round(grid.earlyOut), full: Math.round(grid.fullOut) }));
+  check('a breach costs some of the network, not all of it',
+        grid.lost > 0 && grid.lost < grid.ran,
+        JSON.stringify({ secondsLost: +grid.lost.toFixed(2), over: grid.ran }));
+  check('a road needs a lit city at both ends', grid.dark === 0);
+
   await setCoverage(0.35);
   await clearField();
 

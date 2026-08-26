@@ -420,8 +420,11 @@ its own name, nebula strength and star tint, announced on the wave banner.
   turn its lights back on. Cities kindle one at a time as the dome is rebuilt,
   each guttering like a cold tube before it holds, aurora ribbons thicken over
   the limb, and every absorbed orb flares the cities under where it landed.
-  Cities go dark a cluster at a time as cores are lost, and beasts that get
-  through leave permanent scars.
+  Hold the dome *whole* and the world starts building: roads reach between the
+  lit cities, spreading outward from the apex over about half a minute, and
+  unwinding again if it is breached. A perfect wave sends the news out along
+  the limb, lighting each city as it arrives. Cities go dark a cluster at a
+  time as cores are lost, and beasts that get through leave permanent scars.
 - **Overcharge** builds when you answer faster than your own rolling average,
   rewarding fluency rather than mere accuracy, and discharges as a column beam.
 
@@ -466,7 +469,7 @@ src/
   util.js           math/easing helpers, the magnitude -> power curve
   entities/
     beasts/         base + mult, split, fraction, voidling, boss
-    shield.js       dome, plates, aurora, planet, city lights, scars
+    shield.js       dome, plates, aurora, planet, city lights, roads, scars
     projectile.js   answer bolt and turret
   fx/               camera (shake, hitstop, slow-mo), particles,
                     shockwaves, orbs

@@ -50,6 +50,17 @@ const CURTAINS = 6;           // aurora ribbons at full coverage
 const NEWS = 0.9;             // radians per second the word spreads
 const OVATION = 2.8;          // seconds the celebration takes to die down
 
+// Street lights. Holding the dome whole is a state the game had no way of
+// showing: coverage caps at 1 and every further orb cashed out as score. So the
+// world starts building. Roads reach between the lit cities, spreading outward
+// from the apex, and they unwind again if the dome is breached -- the network is
+// a record of how long the planet has been safe, not another thing that only
+// ever goes up.
+const GRID_FULL = 0.995;      // coverage that counts as a whole dome
+const GRID_TIME = 26;         // seconds of whole dome for the last road to start
+const GRID_GROW = 1.8;        // seconds one road takes to reach across
+const GRID_UNWIND = 0.55;     // how fast the clock runs back once it is breached
+
 export class Shield {
   constructor() {
     const arc = ARC_TO - ARC_FROM;
@@ -78,10 +89,15 @@ export class Shield {
     for (let g = 0; g < 3; g++) {
       for (let i = 0; i < 16; i++) {
         const a = lerp(ARC_FROM - 0.12, ARC_TO + 0.12, (g * 16 + i + rand(0.8, 0.2)) / 48);
+        // How much room there is to sit inland rather than on the limb. The
+        // apex shows about seventy pixels of surface and the ends show none, so
+        // cities in the middle spread back and the road network between them
+        // has junctions instead of being one long chain.
+        const room = Math.max(0, Math.cos(((a - ARC_MID) / ARC_HALF) * 1.25));
         this.cities.push({
           group: g,
           angle: a,
-          depth: rand(1, 0.986),
+          depth: 1 - rand(0.028, 0) * room,
           tw: rand(TAU),
           size: rand(2.2, 0.9),
           wake: 0,
@@ -112,9 +128,36 @@ export class Shield {
     this.cheer = 0;
     this.news = null;
 
+    // Seconds the dome has been whole. Roads between the cities grow out of it.
+    this.uptime = 0;
+    this.links = this._grid();
+
     // 0..1 while the Kraken's finisher winds up: two fronts running inward
     // along the arc, gathering what the player built into the cannon.
     this.surge = 0;
+  }
+
+  // The road network, laid out once. Neighbours are joined into a chain along
+  // the limb and every third city reaches two along, which turns a line into
+  // something with junctions in it.
+  //
+  // Roads arrive outward from the apex rather than in a scatter: the ground
+  // directly under the strongest part of the dome is where anyone would build
+  // first, and spreading from the middle in both directions is an expansion
+  // rather than the left-to-right wipe the city lights themselves had to avoid.
+  _grid() {
+    const by = this.cities.map((c, i) => i).sort((a, b) => this.cities[a].angle - this.cities[b].angle);
+    const pairs = [];
+    for (let i = 0; i < by.length - 1; i++) {
+      pairs.push([by[i], by[i + 1]]);
+      if (i % 3 === 0 && i + 2 < by.length) pairs.push([by[i], by[i + 2]]);
+    }
+    const far = Math.max(...this.cities.map((c) => Math.abs(c.angle - ARC_MID)));
+    return pairs.map(([a, b]) => {
+      const mid = (this.cities[a].angle + this.cities[b].angle) / 2;
+      const out = Math.abs(mid - ARC_MID) / (far || 1);
+      return { a, b, born: GRID_TIME * out ** 0.85 * rand(1.1, 0.9), tw: rand(TAU) };
+    });
   }
 
   domeY(x) {
@@ -255,6 +298,16 @@ export class Shield {
 
   get curtains() { return Math.round(clamp(this.lit, 0, 1) * CURTAINS); }
 
+  // How far a road has got: 0 not started, 1 all the way across. A road between
+  // cities that are not both lit does not exist -- street lights need a street
+  // with somebody on it at either end.
+  reach(l) {
+    if (this.woke(this.cities[l.a]) <= 0 || this.woke(this.cities[l.b]) <= 0) return 0;
+    return clamp((this.uptime - l.born) / GRID_GROW, 0, 1);
+  }
+
+  get roads() { return this.links.filter((l) => this.reach(l) > 0).length; }
+
   // Drive the surge from outside -- main owns the charge ramp. Plates flare as
   // the front crosses them, so the shot is visibly made of the dome and a
   // half-built dome sends a thinner one.
@@ -280,6 +333,12 @@ export class Shield {
     // rises -- the lights going out should be the more alarming half.
     const cov = this.coverage;
     this.lit = damp(this.lit, cov, cov < this.lit ? 3.4 : 1.5, dt);
+    // The uptime clock. It runs forward only while the dome is whole and runs
+    // back more slowly than it ran forward, so one absorbed hit costs you some
+    // of the network rather than all of it.
+    this.uptime = cov >= GRID_FULL
+      ? Math.min(GRID_TIME + GRID_GROW, this.uptime + dt)
+      : Math.max(0, this.uptime - dt * GRID_UNWIND);
     this.pulse = Math.max(0, this.pulse - dt * 1.5);
     this.cheer = Math.max(0, this.cheer - dt / OVATION);
     if (this.news) {
@@ -422,6 +481,7 @@ export class Shield {
     ctx.fill();
 
     this._drawCurtains(ctx, glow, density, calm);
+    this._drawRoads(ctx, glow, calm);
 
     // City lights. A darkened group leaves a cold ember behind, not nothing --
     // the lights went out, the city is still there. An unwoken one is the same
@@ -485,6 +545,50 @@ export class Shield {
     ctx.restore();
 
     for (const s of this.scars) this._drawScar(ctx, s);
+  }
+
+  // The roads, drawn as sodium lines reaching out of one city toward the next.
+  //
+  // Fifty links twinkling independently would be fifty strokes a frame, twice
+  // over. Instead each link's flicker is quantised into one of three brightness
+  // steps and every link at a step goes into one path -- three strokes a pass,
+  // and a link still crosses between steps at its own rate, so the grid
+  // glitters rather than pulsing as one sheet.
+  _drawRoads(ctx, glow, calm) {
+    if (this.uptime <= 0) return;
+    const STEPS = 3;
+    const buckets = [[], [], []];
+    for (const l of this.links) {
+      const p = this.reach(l);
+      if (p <= 0) continue;
+      const a = this.cities[l.a], b = this.cities[l.b];
+      const ax = CX + Math.cos(a.angle) * R_SURFACE * a.depth;
+      const ay = CY + Math.sin(a.angle) * R_SURFACE * a.depth;
+      const bx = CX + Math.cos(b.angle) * R_SURFACE * b.depth;
+      const by = CY + Math.sin(b.angle) * R_SURFACE * b.depth;
+      // Same flicker vocabulary as the lights it joins: a slow breath, and a
+      // sparkle for the seconds after a perfect wave.
+      const tw = 0.62 + Math.sin(this.t * 1.5 * calm + l.tw) * 0.24
+        + Math.sin(this.t * (8 + l.tw) * calm + l.tw * 2) * 0.3 * this.cheer;
+      const step = clamp(Math.floor(tw * STEPS), 0, STEPS - 1);
+      buckets[step].push([ax, ay, lerp(ax, bx, p), lerp(ay, by, p)]);
+    }
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineCap = 'round';
+    for (let pass = 0; pass < 2; pass++) {
+      ctx.lineWidth = pass ? 3.4 : 1.1;
+      for (let s = 0; s < STEPS; s++) {
+        if (!buckets[s].length) continue;
+        const bright = (0.45 + s * 0.28) * glow;
+        ctx.strokeStyle = `hsla(${42 + s * 3}, 100%, ${62 + s * 8}%, ${bright * (pass ? 0.07 : 0.3)})`;
+        ctx.beginPath();
+        for (const [x0, y0, x1, y1] of buckets[s]) { ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); }
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
   }
 
   // One soft warm dot, drawn once and reused for every city halo.
