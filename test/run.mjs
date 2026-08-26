@@ -2172,6 +2172,97 @@ async function main() {
         boards.practice.join(',') === 'ADDER' &&
         boards.modes.join(',') === 'arcade,practice:add');
 
+  // --- the gauntlet -----------------------------------------------------------
+  //
+  // Arcade's fiftieth wave used to be one more Leviathan, which made the last
+  // wave of the hardest mode indistinguishable from the fortieth. It is now all
+  // ten, back to back, and the run ends on a congratulations rather than on a
+  // distance covered.
+
+  const gauntlet = await page.evaluate(async () => {
+    const { ROSTER, isLeviathanBoss, Bulwark, Echo } = await import('/src/entities/bosses/index.js');
+    const g = window.game;
+    const play = (mode) => {
+      g.state = 'title'; g.mode = mode;
+      if (mode === 'practice') { g.trackId = 'add'; g.trackIndex = 0; }
+      g._begin();
+      g.wave = 49; g.beasts = []; g.boss = null; g.runTime = 600;
+      g._endWave();                       // roll into the last wave
+      const titles = [];
+      for (let f = 0; f < 60 * 60 * 20 && g.state === 'playing'; f++) {
+        g.cores = 99;                     // this asks what happens, not who survives
+        const t = g.beasts.find((b) => b.alive && !b.locked);
+        if (t) { g.targetBeast = t; g._fire(t.answerText); }
+        if (g.boss && titles[titles.length - 1] !== g.boss.title) titles.push(g.boss.title);
+        g.update(1 / 60);
+      }
+      return {
+        titles, state: g.state, won: g.won, wonGauntlet: g.wonGauntlet,
+        done: g.gauntletDone, total: g.gauntletTotal,
+        trophies: Object.keys(g.progress.trophies()).length,
+      };
+    };
+    const arcade = play('arcade');
+    const practice = play('practice');
+    return {
+      arcade, practice,
+      roster: ROSTER.map((C) => C.title),
+      // A Warden inside the gauntlet is still a Warden. Reading it off the wave
+      // number would have given all ten the Leviathan camera on wave fifty.
+      byClass: [isLeviathanBoss(Bulwark), isLeviathanBoss(Echo)],
+    };
+  });
+  check('the last wave of arcade is all ten guardians, in the order they were met',
+        gauntlet.arcade.titles.join(',') === gauntlet.roster.join(','),
+        JSON.stringify(gauntlet.arcade.titles));
+  check('going through all ten ends the run on a congratulations',
+        gauntlet.arcade.state === 'victory' && gauntlet.arcade.won &&
+        gauntlet.arcade.wonGauntlet && gauntlet.arcade.done === 10,
+        JSON.stringify(gauntlet.arcade));
+  check('the gauntlet leaves all ten remnants behind',
+        gauntlet.arcade.trophies === 10, String(gauntlet.arcade.trophies));
+  check('practice keeps its single guardian and its own ending',
+        gauntlet.practice.titles.length === 1 && gauntlet.practice.total === 0 &&
+        gauntlet.practice.won && !gauntlet.practice.wonGauntlet,
+        JSON.stringify(gauntlet.practice));
+  check('a warden inside the gauntlet is still a warden',
+        gauntlet.byClass[0] === false && gauntlet.byClass[1] === true);
+
+  // The bug the gauntlet found, and the reason it is tested here.
+  //
+  // The Balance took a *proportion* of its tilt off per answer while the load
+  // added a constant, which has an equilibrium: past about three quarters of a
+  // second per answer the two settled above the level band, the armour never
+  // reached zero, the core never opened, and the boss could not be killed at
+  // all -- five minutes in with every core still intact. It stopped Arcade's
+  // sixth guardian dead, and it had been stopping wave thirty for anyone who
+  // answers at a child's pace since the day it shipped.
+  const balance = await page.evaluate(async () => {
+    const g = window.game;
+    const run = (framesPerAnswer) => {
+      g.state = 'title'; g.mode = 'dynamic'; g._begin();
+      g.wave = 29; g.beasts.length = 0; g.boss = null;
+      g._nextWave();
+      const title = g.boss && g.boss.title;
+      let delay = 0, f = 0;
+      for (; f < 60 * 240 && g.boss; f++) {
+        g.cores = 99;                  // this asks whether it can die, not who lives
+        const t = g.beasts.find((b) => b.alive && !b.locked && b.ready);
+        if (t && delay-- <= 0) { g.targetBeast = t; g._fire(t.answerText); delay = framesPerAnswer; }
+        g.update(1 / 60);
+      }
+      return { title, killed: !g.boss, seconds: Math.round(f / 60) };
+    };
+    // Instant, brisk, and a genuinely slow child at nearly three seconds each.
+    return [0, 45, 110, 170].map(run);
+  });
+  check('the balance can be beaten at any answering speed',
+        balance.every((r) => r.title === 'THE BALANCE' && r.killed),
+        JSON.stringify(balance));
+  check('answering slower costs time, not the fight',
+        balance[3].seconds > balance[0].seconds,
+        JSON.stringify(balance.map((r) => r.seconds)));
+
   // --- the codex -------------------------------------------------------------
   //
   // The page draws the real beasts and encounters, so the thing that can break

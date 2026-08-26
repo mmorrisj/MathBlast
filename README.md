@@ -78,6 +78,18 @@ The arms are ordinary beasts in `game.beasts`, so targeting, answering,
 scoring, the skill table and the progress ledger all work on them without
 knowing the Kraken exists.
 
+### The gauntlet — Arcade's fiftieth wave
+
+All ten guardians, back to back, in the order the run met them: Bulwark,
+Kraken, Twins, Hydra, Remainder, Balance, Cipher, Prism, Nought, Echo. Each at
+its wave-fifty strength, with the supernova and the beat before the next one's
+first salvo as the only breather. A row of the ten remnant glyphs sits in the
+HUD and fills in as they go down, and the run ends on a congratulations rather
+than on a distance covered.
+
+Practice keeps its single Echo. The gauntlet is what makes Arcade the
+achievement rather than just the longer track.
+
 ## The menu
 
 ![The menu, mid-run](docs/menu.png)

@@ -168,6 +168,7 @@ export class Hydra extends Encounter {
 const ARM = 380;
 const LOAD = 0.115;           // tilt per second while it is out of balance
 const LEVEL = 0.14;           // how close to level counts as level
+const SHOVE = 0.26;           // tilt one answer takes off, net of the load
 
 export class Balance extends Encounter {
   constructor(x, y, wave) {
@@ -179,6 +180,7 @@ export class Balance extends Encounter {
     this.tilt = 0.62;
     this.shown = 0;             // the tilt actually drawn, eased
     this.crushT = 0;
+    this.sinceSolve = 0;        // seconds of load to back out on the next answer
     this.side = 1;
   }
 
@@ -208,7 +210,11 @@ export class Balance extends Encounter {
   get pinned() { return Math.abs(this.tilt) >= 0.999; }
 
   // Cracked: it heaves over and the shoving starts again from the far side.
-  _cracked() { this.tilt = this.side * 0.55; this.side = -this.side; }
+  _cracked() {
+    this.tilt = this.side * 0.55;
+    this.side = -this.side;
+    this.sinceSolve = 0;
+  }
 
   _core(api) {
     const eq = this._next(api);
@@ -222,10 +228,26 @@ export class Balance extends Encounter {
   _solved() {
     this.solved++;
     this.hitFlash = 1;
-    // Each answer takes a bite out of the tilt rather than zeroing it. Levelling
-    // it outright meant one solve stripped the armour and the whole fight was
-    // over in under two seconds -- the beam has to actually be wrestled level.
-    this.tilt *= 0.42;
+    // A fixed shove, plus back out everything the load piled on while the
+    // player was reading. One answer is always the same amount of real
+    // progress, whatever their tempo.
+    //
+    // This used to be `tilt *= 0.42`, and a proportional bite against a
+    // constant load has an equilibrium: the load adds LOAD x T per answer and
+    // the bite removes 58% of the tilt, so they settle at LOAD x T / 0.58.
+    // Past about three quarters of a second per answer that sits above the
+    // level band, the armour never reaches zero, the core never opens and the
+    // Balance is simply unkillable -- measured at five minutes and still
+    // fighting, with every core intact, for exactly the slower player this
+    // game is for. Every other armoured boss shoves by a fixed step: a plate
+    // of wall, an arm of orbit. This one now agrees with them.
+    //
+    // The load is still the pressure. Take long enough and the beam pins and
+    // the low pan grinds on the dome, which costs cores -- a punishment, which
+    // is what it was always meant to be, rather than a stalemate.
+    const off = SHOVE + this.sinceSolve * LOAD;
+    this.tilt = Math.sign(this.tilt) * Math.max(0, Math.abs(this.tilt) - off);
+    this.sinceSolve = 0;
     this.crushT = 0;
   }
 
@@ -248,6 +270,7 @@ export class Balance extends Encounter {
   _fight(dt, api) {
     // Out of balance, it keeps going out of balance. This is the clock.
     this.tilt = clamp(this.tilt + this.side * LOAD * dt, -1, 1);
+    this.sinceSolve += dt;
     this.shown += (this.tilt - this.shown) * Math.min(1, dt * 4);
     if (this.pinned) {
       this.crushT += dt;
