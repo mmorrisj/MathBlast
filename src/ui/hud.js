@@ -763,21 +763,27 @@ export function drawTitle(ctx, W, H, t, g) {
   // different curriculum and each track is a different subject, so both are
   // chosen before the run rather than buried in an options screen.
   if (g) {
+    // Same treatment as the menu rows, and for the same reason: an unchosen
+    // mode or tier was a near-black box on a near-black sky, so the only one
+    // that read as a button was the one already selected -- on the screen where
+    // the whole job is picking a different one.
     const cell = (r, on, title, sub, big = 17) => {
-      ctx.fillStyle = on ? 'rgba(18,38,62,0.92)' : 'rgba(10,18,34,0.6)';
+      ctx.fillStyle = on
+        ? `hsla(${theme.friendly}, 60%, 27%, 0.95)`
+        : `hsla(${theme.friendly}, 45%, 17%, 0.88)`;
       roundRect(ctx, r.x, r.y, r.w, r.h, 10);
       ctx.fill();
-      ctx.lineWidth = on ? 2.4 : 1.2;
+      ctx.lineWidth = on ? 2.4 : 1.6;
       ctx.strokeStyle = on
         ? `hsla(48,100%,70%,${0.85 + Math.sin(t * 7) * 0.15})`
-        : `hsla(${theme.friendly},70%,60%,0.28)`;
+        : `hsla(${theme.friendly},80%,66%,0.52)`;
       ctx.stroke();
       ctx.font = `700 ${big}px ${MONO}`;
-      ctx.fillStyle = on ? '#fff6dc' : 'rgba(180,214,240,0.7)';
+      ctx.fillStyle = on ? '#fff6dc' : '#d6e8f8';
       ctx.fillText(title, r.x + r.w / 2, r.y + (sub ? 19 : r.h / 2 + 1));
       if (sub) {
         ctx.font = `400 12px ${MONO}`;
-        ctx.fillStyle = on ? 'rgba(255,236,190,0.8)' : 'rgba(150,190,220,0.5)';
+        ctx.fillStyle = on ? 'rgba(255,236,190,0.85)' : 'rgba(186,214,238,0.72)';
         ctx.fillText(sub, r.x + r.w / 2, r.y + 35);
       }
     };

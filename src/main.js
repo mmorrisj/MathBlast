@@ -33,7 +33,7 @@ import { drawStarChart } from './ui/starchart.js';
 import { drawCodex, codexHitTest, codexArtHit, codexCount } from './ui/codex.js';
 import { ENTRIES as CODEX } from './codex.js';
 import { drawProgress } from './ui/progress.js';
-import { drawMenu, menuItems, menuHitTest } from './ui/menu.js';
+import { drawMenu, menuItems, menuHitTest, menuRect } from './ui/menu.js';
 import { makeBossOf, bossFor, isBossWave, isLeviathan, isLeviathanBoss, ROSTER,
   DemandBeast } from './entities/bosses/index.js';
 import { dayKey } from './progress.js';
@@ -416,7 +416,10 @@ class Game {
         return;
       }
       if (this.menu) {
-        const hit = menuHitTest(px, py, this, W);
+        // H matters: rows shrink to fit a long list, so the tap targets move
+        // with them. Hit testing against the default height would put every
+        // tap a row or two out on the eight-entry title menu.
+        const hit = menuHitTest(px, py, this, W, H);
         // A tap outside the list closes it, so there is always a way out even
         // if none of the entries is what was wanted.
         if (hit) this._menuAction(hit); else this._closeMenu();
@@ -2007,5 +2010,7 @@ function frame(now) {
 requestAnimationFrame(frame);
 
 window.game = game;
-// Exposed for the test suite, which drives the menu by tapping its rows.
-window.__menu = { menuItems };
+// Exposed for the test suite, which drives the menu by tapping its rows. The
+// layout goes with it: rows shrink to fit a long list, so a test that assumed
+// a fixed row height would tap the wrong entry.
+window.__menu = { menuItems, menuRect, menuHitTest };
