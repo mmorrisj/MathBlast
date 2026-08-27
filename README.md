@@ -434,9 +434,15 @@ its own name, nebula strength and star tint, announced on the wave banner.
   the limb, and every absorbed orb flares the cities under where it landed.
   Hold the dome *whole* and the world starts building: roads reach between the
   lit cities, spreading outward from the apex over about half a minute, and
-  unwinding again if it is breached. A perfect wave sends the news out along
-  the limb, lighting each city as it arrives. Cities go dark a cluster at a
-  time as cores are lost, and beasts that get through leave permanent scars.
+  unwinding again if it is breached. Past that, the orbs a full dome has no
+  room for stop being just score — each one pays into a fund, and the world
+  founds an outpost further south with a road out to it, so the settled land
+  creeps down the face of the planet for as long as you hold the shield and
+  keep answering. A perfect wave sends the news out along the limb, lighting
+  each city as it arrives. Cities go dark a cluster at a time as cores are
+  lost, and a beast that gets through leaves a crater that **burns** — coals
+  scattered through the bowl, each at its own rate, cooling over eight seconds
+  to an ember bed that never quite goes out.
 - **Overcharge** builds when you answer faster than your own rolling average,
   rewarding fluency rather than mere accuracy, and discharges as a column beam.
 
