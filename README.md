@@ -437,8 +437,9 @@ its own name, nebula strength and star tint, announced on the wave banner.
   unwinding again if it is breached. Past that, the orbs a full dome has no
   room for stop being just score — each one pays into a fund, and the world
   founds an outpost further south with a road out to it, so the settled land
-  creeps down the face of the planet for as long as you hold the shield and
-  keep answering. A perfect wave sends the news out along the limb, lighting
+  creeps down and out across the face of the planet for as long as you hold the
+  shield and keep answering — twenty-six of them, reaching the whole of the
+  visible ground from x=246 to x=1016 and down to the bottom of the frame. A perfect wave sends the news out along the limb, lighting
   each city as it arrives. Cities go dark a cluster at a time as cores are
   lost, and a beast that gets through leaves a crater that **burns** — coals
   scattered through the bowl, each at its own rate, cooling over eight seconds
