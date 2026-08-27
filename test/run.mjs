@@ -1795,6 +1795,100 @@ async function main() {
         JSON.stringify({ secondsLost: +grid.lost.toFixed(2), over: grid.ran }));
   check('a road needs a lit city at both ends', grid.dark === 0);
 
+  // Craters were a black ellipse under one gradient that decayed to a flat
+  // eighteen percent and then sat there: a hole, not a fire. And the frontier:
+  // once the dome is whole, coverage is pinned and every further orb cashed out
+  // as score with nothing on the planet to show for it.
+  const frontier = await page.evaluate(async () => {
+    const { Shield, CX } = await import('/src/entities/shield.js');
+    const s = new Shield();
+    const whole = () => { for (const p of s.plates) p.integrity = 1; };
+    whole();
+    s.lit = 1;
+    for (let i = 0; i < 200; i++) s.update(1 / 60);   // let lit settle
+
+    // Orbs the dome cannot use pay for the frontier.
+    const before = s.founded;
+    for (let i = 0; i < 40; i++) { s.deposit(CX, 0.6); s.update(1 / 60); }
+    const built = s.founded;
+
+    // A breached dome does not keep building, and the fund waits rather than
+    // being thrown away. The plate is re-broken every frame: a deposit refills
+    // the nearest incomplete plate, so one that is simply set to zero is whole
+    // again two orbs later and the dome is never actually breached.
+    s.fund = 20;
+    for (let i = 0; i < 30; i++) { s.plates[3].integrity = 0; s.update(1 / 60); }
+    const whileBroken = s.founded;
+    const banked = s.fund;
+    whole();
+    for (let i = 0; i < 30; i++) s.update(1 / 60);
+    const resumed = s.founded;
+    const spent = s.fund < banked;
+
+    // Fill the frontier and check every outpost is somewhere a player can see.
+    while (s.founded < 40) if (!s.found()) break;
+    const posts = s.cities.filter((c) => c.outpost);
+    const wired = posts.every((c) => {
+      const i = s.cities.indexOf(c);
+      return s.links.some((l) => l.a === i || l.b === i);
+    });
+    const base = s.cities.filter((c) => !c.outpost && s._py(c) < 700);
+    return {
+      before, built, whileBroken, banked: +banked.toFixed(2), resumed, spent,
+      posts: posts.length,
+      onScreen: posts.every((c) => s._py(c) > 560 && s._py(c) < 712 &&
+                                   s._px(c) > 40 && s._px(c) < 1240),
+      lowest: Math.round(Math.max(...posts.map((c) => s._py(c)))),
+      apex: Math.round(Math.min(...base.map((c) => s._py(c)))),
+      wired,
+      lit: posts.every((c) => s.woke(c) > 0),
+    };
+  });
+  check('orbs a full dome cannot use pay for the frontier',
+        frontier.before === 0 && frontier.built > 0,
+        JSON.stringify({ before: frontier.before, built: frontier.built }));
+  check('a breached dome stops building but keeps the fund',
+        frontier.whileBroken === frontier.built && frontier.banked === 20 &&
+        frontier.resumed > frontier.whileBroken && frontier.spent,
+        JSON.stringify(frontier));
+  check('every outpost is somewhere the player can actually see it',
+        frontier.onScreen && frontier.posts > 0,
+        JSON.stringify({ posts: frontier.posts, lowest: frontier.lowest }));
+  check('the frontier reaches south of the settled band',
+        frontier.lowest > frontier.apex + 30,
+        JSON.stringify({ lowest: frontier.lowest, apex: frontier.apex }));
+  check('an outpost is lit and joined to the network',
+        frontier.wired && frontier.lit);
+
+  // The crater. Asserted on the model rather than on pixels: sampling the
+  // canvas turned out to measure the scene drifting and the bloom pass
+  // breathing as much as the fire -- on the old static crater the frame-to-
+  // frame spread came out *larger* than on the new one, and a reference box
+  // that looked like bare ground was open space, which any crater beats. Both
+  // versions of the pixel check passed on a plain black circle. These do not.
+  const crater = await page.evaluate(() => {
+    const s = window.game.shield;
+    s.scars.length = 0;
+    s.scar(640);
+    const sc = s.scars[0];
+    const e = sc.embers;
+    return {
+      n: e.length,
+      rates: e.map((x) => +x.rate.toFixed(3)),
+      inside: e.every((x) => Math.hypot(x.dx / sc.r, (x.dy - 6) / (sc.r * 0.5)) <= 1),
+      fresh: +s.heatOf({ t: 0 }).toFixed(3),
+      minute: +s.heatOf({ t: 60 }).toFixed(3),
+      hour: +s.heatOf({ t: 3600 }).toFixed(3),
+    };
+  });
+  check('a crater is a bed of coals, each burning at its own rate',
+        crater.n >= 5 && new Set(crater.rates).size === crater.n && crater.inside,
+        JSON.stringify(crater));
+  check('a crater cools to embers and then keeps burning',
+        crater.fresh === 1 && crater.minute === crater.hour && crater.hour > 0.3,
+        JSON.stringify(crater));
+
+  await page.evaluate(() => { window.game.shield.scars.length = 0; });
   await setCoverage(0.35);
   await clearField();
 

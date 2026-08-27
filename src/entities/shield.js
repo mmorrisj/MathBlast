@@ -61,6 +61,25 @@ const GRID_TIME = 26;         // seconds of whole dome for the last road to star
 const GRID_GROW = 1.8;        // seconds one road takes to reach across
 const GRID_UNWIND = 0.55;     // how fast the clock runs back once it is breached
 
+// The frontier. Once the dome is whole, coverage is pinned and every further
+// orb cashes out as score with nothing on the planet to show for it. Those orbs
+// now fund the expansion: each one that arrives with nowhere to go pays into a
+// fund, and when the fund is full the world founds an outpost further inland --
+// further south on screen -- and runs a road out to it. Holding a full dome and
+// gathering points is the same act as pushing the settled land outward.
+const OUTPOST_COST = 5.5;     // orb energy for one new outpost
+const OUTPOSTS = 18;          // how far the frontier can reach in one run
+// The southern edge of what is actually on screen. The planet is a 1045px
+// sphere whose centre is 955px below the frame, so the visible ground is a lens
+// about ninety pixels deep at the apex, closing to nothing around x=216 and
+// x=1064. An outpost's depth is solved against this rather than guessed at from
+// a falloff curve: the first attempt used the same cosine the base cities use
+// and put half the frontier under the HUD strip, where it was drawn every frame
+// and never seen.
+const FRONTIER_Y = 706;
+const MAX_SCARS = 16;         // craters kept burning at once
+const HEM = 1 - 0.032;        // shallowest an outpost sits: just inside the band
+
 export class Shield {
   constructor() {
     const arc = ARC_TO - ARC_FROM;
@@ -131,6 +150,9 @@ export class Shield {
     // Seconds the dome has been whole. Roads between the cities grow out of it.
     this.uptime = 0;
     this.links = this._grid();
+    // Orb energy banked toward the next outpost, and how many have been founded.
+    this.fund = 0;
+    this.founded = 0;
 
     // 0..1 while the Kraken's finisher winds up: two fronts running inward
     // along the arc, gathering what the player built into the cannon.
@@ -210,6 +232,8 @@ export class Shield {
     // dome is the most-defended the world ever is, and it should not be the one
     // state where nothing below it reacts.
     this.kindle(x, 0.55);
+    // What the dome had no room for goes to the frontier.
+    if (left > 0.001) this.fund += left;
     return touched;
   }
 
@@ -224,6 +248,56 @@ export class Shield {
       if (near > 0) c.flare = Math.min(1, c.flare + near * strength);
     }
   }
+
+  // Found the next outpost. It goes further inland than anything before it --
+  // further south on screen -- at an angle chosen away from the ones already
+  // out there, and a road runs to whichever settlement is nearest.
+  //
+  // How deep it can sit is bounded by what is actually on screen at that angle:
+  // the planet shows about seventy pixels of surface at the apex and none at
+  // the ends, so an outpost near the edge stays near the limb or it would be
+  // drawn under the HUD strip.
+  found() {
+    if (this.founded >= OUTPOSTS) return null;
+    // Spread by golden angle across the arc that has room, so consecutive
+    // outposts land far apart and the frontier fills in rather than marching
+    // along. The band is where the ground is deep enough on screen to hold one.
+    const edge = Math.asin(clamp((CY - FRONTIER_Y) / (HEM * R_SURFACE), -1, 1));
+    const lo = -(Math.PI - edge), hi = -edge;
+    const a = lo + ((this.founded * 0.61803 + 0.31) % 1) * (hi - lo);
+    // The deepest this angle can go and still be above the HUD strip.
+    const deepest = (CY - FRONTIER_Y) / (-Math.sin(a) * R_SURFACE);
+    // Later outposts push further south. Early ones sit just under the cities.
+    const step = (this.founded + 1) / OUTPOSTS;
+    const depth = clamp(lerp(HEM, deepest, step * rand(1, 0.7)), deepest, HEM);
+    const c = {
+      group: 3,                 // never darkened by a lost core: it is new ground
+      angle: a,
+      depth,
+      tw: rand(TAU),
+      size: rand(2.1, 1),
+      // Founded, so lit: the fund that paid for it was orbs the dome could not
+      // use, which only happens with the dome whole and every city already on.
+      wake: 0,
+      flare: 1,
+      outpost: true,
+    };
+    const i = this.cities.push(c) - 1;
+    // Wire it to the nearest settlement that is already on the map.
+    let best = -1, bd = Infinity;
+    for (let j = 0; j < i; j++) {
+      const o = this.cities[j];
+      const d = Math.hypot(this._px(c) - this._px(o), this._py(c) - this._py(o));
+      if (d < bd) { bd = d; best = j; }
+    }
+    if (best >= 0) this.links.push({ a: best, b: i, born: 0, tw: rand(TAU) });
+    this.founded++;
+    this.pulse = Math.min(1.35, this.pulse + 0.4);
+    return c;
+  }
+
+  _px(c) { return CX + Math.cos(c.angle) * R_SURFACE * c.depth; }
+  _py(c) { return CY + Math.sin(c.angle) * R_SURFACE * c.depth; }
 
   // A perfect wave. Every city cheers, but not at once: the word starts at `x`
   // and runs both ways along the limb, so what the player sees is a wave of
@@ -280,7 +354,28 @@ export class Shield {
   }
 
   scar(x) {
-    this.scars.push({ angle: this.surfaceAngle(x), r: rand(46, 26), t: 0 });
+    const r = rand(46, 26);
+    // The bed of embers, scattered inside the bowl and each burning at its own
+    // rate. A crater was a black ellipse under one radial gradient that decayed
+    // to a flat 0.18 and then sat there: a hole, not a fire. Give it coals.
+    const embers = [];
+    for (let i = 0; i < 7; i++) {
+      const a = rand(TAU);
+      const d = Math.sqrt(Math.random()) * 0.72;      // even over the area
+      embers.push({
+        dx: Math.cos(a) * r * d,
+        dy: 6 + Math.sin(a) * r * 0.46 * d,
+        r: rand(5.5, 2),
+        tw: rand(TAU),
+        rate: rand(3.4, 1.2),
+      });
+    }
+    this.scars.push({ angle: this.surfaceAngle(x), r, t: 0, embers });
+    // Bounded. Each burning crater costs about a third of a millisecond a frame
+    // in software rendering, and past a dozen or so the limb is a solid wall of
+    // fire anyway -- the difference between sixteen craters and forty is frame
+    // time, not information. The oldest falls off the end.
+    if (this.scars.length > MAX_SCARS) this.scars.shift();
     for (const p of this.plates) {
       if (Math.abs(p.x - x) < 70) { p.integrity = 0; p.crack = 1; }
     }
@@ -345,6 +440,13 @@ export class Shield {
     this.uptime = cov >= GRID_FULL
       ? Math.min(GRID_TIME + GRID_GROW, this.uptime + dt)
       : Math.max(0, this.uptime - dt * GRID_UNWIND);
+    // Spend the fund. Only while the dome is whole: the frontier is what a
+    // safe planet does with a surplus, not something a breached one keeps
+    // building through. Banked energy waits rather than being thrown away.
+    while (cov >= GRID_FULL && this.fund >= OUTPOST_COST && this.founded < OUTPOSTS) {
+      this.fund -= OUTPOST_COST;
+      this.found();
+    }
     this.pulse = Math.max(0, this.pulse - dt * 1.5);
     this.cheer = Math.max(0, this.cheer - dt / OVATION);
     if (this.news) {
@@ -597,6 +699,23 @@ export class Shield {
     ctx.restore();
   }
 
+  // One soft coal, drawn once and reused for every ember in every crater.
+  _ember() {
+    if (this._emberSprite) return this._emberSprite;
+    const c = document.createElement('canvas');
+    c.width = c.height = 64;
+    const g = c.getContext('2d');
+    const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grad.addColorStop(0, 'hsla(36, 100%, 76%, 0.9)');
+    grad.addColorStop(0.24, 'hsla(22, 100%, 56%, 0.5)');
+    grad.addColorStop(0.6, 'hsla(12, 100%, 46%, 0.14)');
+    grad.addColorStop(1, 'hsla(8, 100%, 40%, 0)');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 64, 64);
+    this._emberSprite = c;
+    return c;
+  }
+
   // One soft warm dot, drawn once and reused for every city halo.
   _glow() {
     if (this._glowSprite) return this._glowSprite;
@@ -682,25 +801,86 @@ export class Shield {
     ctx.restore();
   }
 
+  // How hot a crater is: white at the impact, cooling over eight seconds to a
+  // bed of coals, and then it stays there. A scar the player can still see
+  // breathing an hour later is the point of a permanent mark -- the old curve
+  // faded toward nothing and left a black hole in the ground.
+  heatOf(s) { return 0.34 + 0.66 * Math.max(0, 1 - s.t / 8); }
+
+  // A crater burns.
   _drawScar(ctx, s) {
     const x = CX + Math.cos(s.angle) * R_SURFACE;
     const y = CY + Math.sin(s.angle) * R_SURFACE;
+    const calm = theme.reducedMotion ? 0.22 : 1;
+    const heat = this.heatOf(s);
+    // The whole bed breathes, slowly and unevenly, the way a fire does.
+    const breath = 0.72 + 0.28 * Math.sin(s.t * 0.9 * calm + s.angle * 7)
+      * Math.sin(s.t * 0.37 * calm + s.angle * 3);
+
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(s.angle + Math.PI / 2);
+
+    // The bowl. Still a hole in the ground.
     ctx.fillStyle = 'rgba(6,4,10,0.92)';
     ctx.beginPath();
     ctx.ellipse(0, 6, s.r, s.r * 0.5, 0, 0, TAU);
     ctx.fill();
-    const heat = Math.max(0.18, 1 - s.t / 6);
+
     ctx.globalCompositeOperation = 'lighter';
-    const g = ctx.createRadialGradient(0, 4, 0, 0, 4, s.r);
-    g.addColorStop(0, `hsla(24, 100%, 60%, ${0.55 * heat})`);
-    g.addColorStop(1, 'hsla(20, 100%, 50%, 0)');
-    ctx.fillStyle = g;
+
+    // Heat haze over the whole crater, and a wider, dimmer wash beyond the rim
+    // so the ground around it is lit too.
+    for (const [scale, alpha] of [[1.1, 0.34], [2.2, 0.11]]) {
+      const g = ctx.createRadialGradient(0, 4, 0, 0, 4, s.r * scale);
+      g.addColorStop(0, `hsla(26, 100%, 62%, ${alpha * heat * breath})`);
+      g.addColorStop(0.55, `hsla(16, 100%, 52%, ${alpha * 0.45 * heat * breath})`);
+      g.addColorStop(1, 'hsla(14, 100%, 46%, 0)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.ellipse(0, 4, s.r * 1.2 * scale, s.r * 0.7 * scale, 0, 0, TAU);
+      ctx.fill();
+    }
+
+    // The coals. Each one its own rate, so the bed glitters rather than pulsing
+    // as a single sheet -- the same trick the city lights use. Each is a soft
+    // sprite with a small hot core inside it: flat ellipses read as orange
+    // pebbles sitting in a hole rather than as anything burning.
+    const sprite = this._ember();
+    for (const e of s.embers) {
+      const beat = 0.5 + 0.5 * Math.sin(s.t * e.rate * calm + e.tw);
+      const live = (0.25 + beat * 0.75) * heat;
+      const rr = e.r * (1.9 + live * 1.5);
+      ctx.globalAlpha = clamp(0.3 + live * 0.7, 0, 1);
+      ctx.drawImage(sprite, e.dx - rr, e.dy - rr * 0.72, rr * 2, rr * 1.44);
+      ctx.globalAlpha = 1;
+      // Hot coals run yellow, cooling ones deep red.
+      ctx.fillStyle = `hsla(${8 + live * 36}, 100%, ${46 + live * 40}%, ${0.3 + live * 0.55})`;
+      ctx.beginPath();
+      ctx.ellipse(e.dx, e.dy, e.r * 0.5 * (0.7 + live * 0.5), e.r * 0.32 * (0.7 + live * 0.5), 0, 0, TAU);
+      ctx.fill();
+    }
+
+    // A rim of glowing slag. Soft: a hard stroke read as a cartoon ring drawn
+    // round the hole rather than as ground that got hot.
+    ctx.strokeStyle = `hsla(18, 100%, ${44 + heat * 20}%, ${(0.14 + heat * 0.24) * breath})`;
+    ctx.lineWidth = 5;
     ctx.beginPath();
-    ctx.ellipse(0, 4, s.r * 1.2, s.r * 0.7, 0, 0, TAU);
-    ctx.fill();
+    ctx.ellipse(0, 6, s.r * 0.97, s.r * 0.485, 0, 0, TAU);
+    ctx.stroke();
+
+    // Sparks lifting off the bed and going out. Deterministic from the scar's
+    // own clock, so they cost nothing to keep.
+    for (let i = 0; i < 3; i++) {
+      const p = ((s.t * (0.45 + i * 0.11) * calm) + i * 0.37) % 1;
+      const a = 0.65 * (1 - p) * heat;
+      if (a <= 0.02) continue;
+      const sx = Math.sin(s.angle * 9 + i * 2.3 + Math.floor(s.t * 0.45 + i)) * s.r * 0.6;
+      ctx.fillStyle = `hsla(${30 + p * 14}, 100%, ${62 + p * 20}%, ${a})`;
+      ctx.beginPath();
+      ctx.arc(sx + Math.sin(p * 6 + i) * 5, 4 - p * s.r * 1.5, 1.9 * (1 - p * 0.6), 0, TAU);
+      ctx.fill();
+    }
     ctx.restore();
   }
 
