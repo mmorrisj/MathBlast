@@ -1836,8 +1836,12 @@ async function main() {
     return {
       before, built, whileBroken, banked: +banked.toFixed(2), resumed, spent,
       posts: posts.length,
-      onScreen: posts.every((c) => s._py(c) > 560 && s._py(c) < 712 &&
-                                   s._px(c) > 40 && s._px(c) < 1240),
+      // Bounded by the frame itself, not by a copy of the constant that places
+      // them -- a bound that has to be kept in sync with the thing it checks
+      // fails the moment the frontier is allowed further south, which is
+      // exactly when you want the check to still be meaningful.
+      onScreen: posts.every((c) => s._py(c) > 560 && s._py(c) <= 720 &&
+                                   s._px(c) > 8 && s._px(c) < 1272),
       lowest: Math.round(Math.max(...posts.map((c) => s._py(c)))),
       apex: Math.round(Math.min(...base.map((c) => s._py(c)))),
       wired,

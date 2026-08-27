@@ -68,15 +68,14 @@ const GRID_UNWIND = 0.55;     // how fast the clock runs back once it is breache
 // further south on screen -- and runs a road out to it. Holding a full dome and
 // gathering points is the same act as pushing the settled land outward.
 const OUTPOST_COST = 5.5;     // orb energy for one new outpost
-const OUTPOSTS = 18;          // how far the frontier can reach in one run
+const OUTPOSTS = 26;          // how far the frontier can reach in one run
 // The southern edge of what is actually on screen. The planet is a 1045px
 // sphere whose centre is 955px below the frame, so the visible ground is a lens
-// about ninety pixels deep at the apex, closing to nothing around x=216 and
-// x=1064. An outpost's depth is solved against this rather than guessed at from
-// a falloff curve: the first attempt used the same cosine the base cities use
-// and put half the frontier under the HUD strip, where it was drawn every frame
-// and never seen.
-const FRONTIER_Y = 706;
+// about eighty pixels deep at the apex, closing to nothing near x=246 and
+// x=1016. Both the angle band and the depth are solved against that rather than
+// guessed at from a falloff curve -- guessing put half the frontier under the
+// HUD strip, and then confined what was left to the middle third of the ground.
+const FRONTIER_Y = 714;
 const MAX_SCARS = 16;         // craters kept burning at once
 const HEM = 1 - 0.032;        // shallowest an outpost sits: just inside the band
 
@@ -259,17 +258,26 @@ export class Shield {
   // drawn under the HUD strip.
   found() {
     if (this.founded >= OUTPOSTS) return null;
-    // Spread by golden angle across the arc that has room, so consecutive
-    // outposts land far apart and the frontier fills in rather than marching
-    // along. The band is where the ground is deep enough on screen to hold one.
-    const edge = Math.asin(clamp((CY - FRONTIER_Y) / (HEM * R_SURFACE), -1, 1));
+    // Spread by golden angle across the arc that has any ground on screen at
+    // all, so consecutive outposts land far apart and the frontier fills in
+    // rather than marching along.
+    //
+    // The band is where the *surface* is above the bottom of the frame, not
+    // where a full inland step fits. Asking for the step narrowed the frontier
+    // to x 360..908 out of the 216..1064 the planet actually shows -- a third
+    // of the usable ground unreachable, and the east and west of the world
+    // never settled however long the run went on.
+    const edge = Math.asin(clamp((CY - FRONTIER_Y) / R_SURFACE, -1, 1));
     const lo = -(Math.PI - edge), hi = -edge;
     const a = lo + ((this.founded * 0.61803 + 0.31) % 1) * (hi - lo);
-    // The deepest this angle can go and still be above the HUD strip.
-    const deepest = (CY - FRONTIER_Y) / (-Math.sin(a) * R_SURFACE);
+    // The deepest this angle can go and still be inside the frame. Near the
+    // east and west ends that is the surface itself, so an outpost there hugs
+    // the limb -- which is still the frontier reaching somewhere new.
+    const deepest = clamp((CY - FRONTIER_Y) / (-Math.sin(a) * R_SURFACE), 0, 1);
     // Later outposts push further south. Early ones sit just under the cities.
+    const shallow = Math.max(deepest, HEM);
     const step = (this.founded + 1) / OUTPOSTS;
-    const depth = clamp(lerp(HEM, deepest, step * rand(1, 0.7)), deepest, HEM);
+    const depth = clamp(lerp(shallow, deepest, step * rand(1, 0.7)), deepest, 1);
     const c = {
       group: 3,                 // never darkened by a lost core: it is new ground
       angle: a,
