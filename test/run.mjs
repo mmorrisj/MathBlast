@@ -1826,7 +1826,7 @@ async function main() {
     const spent = s.fund < banked;
 
     // Fill the frontier and check every outpost is somewhere a player can see.
-    while (s.founded < 40) if (!s.found()) break;
+    while (s.founded < 80) if (!s.found()) break;
     const posts = s.cities.filter((c) => c.outpost);
     const wired = posts.every((c) => {
       const i = s.cities.indexOf(c);
@@ -1836,12 +1836,17 @@ async function main() {
     return {
       before, built, whileBroken, banked: +banked.toFixed(2), resumed, spent,
       posts: posts.length,
-      // Bounded by the frame itself, not by a copy of the constant that places
-      // them -- a bound that has to be kept in sync with the thing it checks
-      // fails the moment the frontier is allowed further south, which is
-      // exactly when you want the check to still be meaningful.
-      onScreen: posts.every((c) => s._py(c) > 560 && s._py(c) <= 720 &&
-                                   s._px(c) > 8 && s._px(c) < 1272),
+      // Bounded by what the camera can actually reveal, not by the resting
+      // frame: the frontier reaches into the dark face of the planet that only
+      // appears when a boss pulls the camera back to 0.7, which shows world y
+      // down to 920 and across from x=-83 to x=1363. A bound copied from the
+      // constant that places them would go quiet the moment the frontier was
+      // allowed further south, which is exactly when it should still bite.
+      onScreen: posts.every((c) => s._py(c) > 560 && s._py(c) <= 920 &&
+                                   s._px(c) > -90 && s._px(c) < 1370),
+      // And it has to actually use that room: a frontier that stops at the
+      // resting frame edge leaves the whole dark face empty.
+      reachesDeep: posts.filter((c) => s._py(c) > 730).length >= posts.length / 3,
       lowest: Math.round(Math.max(...posts.map((c) => s._py(c)))),
       apex: Math.round(Math.min(...base.map((c) => s._py(c)))),
       wired,
@@ -1855,8 +1860,11 @@ async function main() {
         frontier.whileBroken === frontier.built && frontier.banked === 20 &&
         frontier.resumed > frontier.whileBroken && frontier.spent,
         JSON.stringify(frontier));
-  check('every outpost is somewhere the player can actually see it',
+  check('every outpost is somewhere the camera can reveal',
         frontier.onScreen && frontier.posts > 0,
+        JSON.stringify({ posts: frontier.posts, lowest: frontier.lowest }));
+  check('the frontier reaches into the dark face, not just the near band',
+        frontier.reachesDeep,
         JSON.stringify({ posts: frontier.posts, lowest: frontier.lowest }));
   check('the frontier reaches south of the settled band',
         frontier.lowest > frontier.apex + 30,

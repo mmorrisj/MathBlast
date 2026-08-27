@@ -67,15 +67,22 @@ const GRID_UNWIND = 0.55;     // how fast the clock runs back once it is breache
 // fund, and when the fund is full the world founds an outpost further inland --
 // further south on screen -- and runs a road out to it. Holding a full dome and
 // gathering points is the same act as pushing the settled land outward.
-const OUTPOST_COST = 5.5;     // orb energy for one new outpost
-const OUTPOSTS = 26;          // how far the frontier can reach in one run
-// The southern edge of what is actually on screen. The planet is a 1045px
-// sphere whose centre is 955px below the frame, so the visible ground is a lens
-// about eighty pixels deep at the apex, closing to nothing near x=246 and
-// x=1016. Both the angle band and the depth are solved against that rather than
-// guessed at from a falloff curve -- guessing put half the frontier under the
-// HUD strip, and then confined what was left to the middle third of the ground.
-const FRONTIER_Y = 714;
+const OUTPOST_COST = 3;       // orb energy for one new outpost
+const OUTPOSTS = 60;          // how far the frontier can reach in one run
+// How far south the frontier may reach.
+//
+// Not the bottom of the frame. The camera pulls back for an encounter -- 0.8
+// for a Warden, 0.7 for a Leviathan -- and at 0.7 the player can see down to
+// world y=920 and clear across from x=-83 to x=1363. That is two hundred more
+// pixels of planet than sits on screen at rest, and it was all empty: the
+// frontier stopped at the resting frame edge, so the whole dark face of the
+// world below the limb never got a single light on it.
+//
+// It reaches into that now. At rest you see the near band; when a boss opens
+// the field, the grid the player has been building all run is revealed running
+// away down the planet. The far rows being off screen most of the time is the
+// point -- they are what the pull-back is for.
+const FRONTIER_Y = 916;
 const MAX_SCARS = 16;         // craters kept burning at once
 const HEM = 1 - 0.032;        // shallowest an outpost sits: just inside the band
 
@@ -283,7 +290,9 @@ export class Shield {
       angle: a,
       depth,
       tw: rand(TAU),
-      size: rand(2.1, 1),
+      // Smaller the further out it is, so the deep rows read as distance rather
+      // than as the same town drawn twice.
+      size: rand(2.1, 1) * (0.62 + 0.38 * ((depth - 0.72) / 0.28)),
       // Founded, so lit: the fund that paid for it was orbs the dome could not
       // use, which only happens with the dome whole and every city already on.
       wake: 0,
@@ -596,13 +605,20 @@ export class Shield {
     ctx.arc(CX, CY, R_SURFACE + reach + 2, 0, TAU);
     ctx.fill();
 
+    // How deep the frontier is drawn. The far rows are only visible when a boss
+    // pulls the camera back, and they are the largest single cost on the
+    // planet, so they are the first thing a machine that cannot hold sixty
+    // frames gives up -- before the aurora, before the halos.
+    const deep = 1 - (1 - 0.72) * density;
+
     this._drawCurtains(ctx, glow, density, calm);
-    this._drawRoads(ctx, glow, calm);
+    this._drawRoads(ctx, glow, calm, deep);
 
     // City lights. A darkened group leaves a cold ember behind, not nothing --
     // the lights went out, the city is still there. An unwoken one is the same
     // ember for the opposite reason: nobody has dared switch it on yet.
     for (const c of this.cities) {
+      if (c.outpost && c.depth < deep) continue;
       const r = R_SURFACE * c.depth;
       const x = CX + Math.cos(c.angle) * r;
       const y = CY + Math.sin(c.angle) * r;
@@ -670,7 +686,7 @@ export class Shield {
   // steps and every link at a step goes into one path -- three strokes a pass,
   // and a link still crosses between steps at its own rate, so the grid
   // glitters rather than pulsing as one sheet.
-  _drawRoads(ctx, glow, calm) {
+  _drawRoads(ctx, glow, calm, deep = 0) {
     if (this.uptime <= 0) return;
     const STEPS = 3;
     const buckets = [[], [], []];
@@ -678,6 +694,8 @@ export class Shield {
       const p = this.reach(l);
       if (p <= 0) continue;
       const a = this.cities[l.a], b = this.cities[l.b];
+      // A road to a settlement that is not being drawn is not drawn either.
+      if ((a.outpost && a.depth < deep) || (b.outpost && b.depth < deep)) continue;
       const ax = CX + Math.cos(a.angle) * R_SURFACE * a.depth;
       const ay = CY + Math.sin(a.angle) * R_SURFACE * a.depth;
       const bx = CX + Math.cos(b.angle) * R_SURFACE * b.depth;
